@@ -2,7 +2,7 @@
  * Google Apps Script for OpenAI API Integration
  * Made for you by https://www.zyxware.com
  * Features:
- * - Experimental batch processing support
+ * - Batch Processing Capability
  * - Executes OpenAI prompts on Google Sheets data
  * - Saves results back to the Data sheet
  * - Logs execution (tokens, costs)
@@ -537,20 +537,20 @@ const PRICING_CONFIG = {
       }
       
       // If we've found enough rows for this batch, set the end row
-      if (rowIndex - (startRow - 1) >= batchSize) {
-        endRow = rowIndex;
+      if (rowIndex - (startRow - 1) + 1 >= batchSize) { // +1 to include the current row
+        endRow = rowIndex + 1; // +1 to include the current row in sheet coordinates
         break;
       }
     }
     
     // If we didn't find enough rows to fill a batch, use all remaining rows
     if (startRow !== -1 && endRow === -1) {
-      endRow = rowsToProcess - 1;
+      endRow = rowsToProcess; // Use the actual last row to process (not -1)
     }
     
     // Count remaining rows after this batch
-    if (endRow !== -1 && endRow < rowsToProcess - 1) {
-      for (var rowIndex = endRow + 1; rowIndex < rowsToProcess; rowIndex++) {
+    if (endRow !== -1 && endRow < rowsToProcess) {
+      for (var rowIndex = endRow; rowIndex < rowsToProcess; rowIndex++) { // Start from endRow (not +1)
         if (dataRange[rowIndex][statusColIndex] === 0 && 
             (!dataRange[rowIndex][batchIdColIndex] || dataRange[rowIndex][batchIdColIndex] === "0")) {
           remainingRows++;
