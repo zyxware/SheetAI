@@ -10,12 +10,27 @@
 
 // OpenAI Pricing Configuration
 const PRICING_CONFIG = {
-    "gpt-4.5-preview": { "input_per_1m": 75.00, "cached_input_per_1m": 37.50, "output_per_1m": 150.00 },
-    "gpt-4o": { "input_per_1m": 2.50, "cached_input_per_1m": 1.25, "output_per_1m": 10.00 },
-    "gpt-4o-mini": { "input_per_1m": 0.15, "cached_input_per_1m": 0.075, "output_per_1m": 0.60 },
-    "o3-mini": { "input_per_1m": 1.10, "cached_input_per_1m": 0.55, "output_per_1m": 4.40 },
-    "o1-mini": { "input_per_1m": 1.10, "cached_input_per_1m": 0.55, "output_per_1m": 4.40 }
-  };
+  "gpt-4.5-preview": { "input_per_1m": 75.00, "cached_input_per_1m": 37.50, "output_per_1m": 150.00 },
+  "gpt-4o": { "input_per_1m": 2.50, "cached_input_per_1m": 1.25, "output_per_1m": 10.00 },
+  "gpt-4o-mini": { "input_per_1m": 0.15, "cached_input_per_1m": 0.075, "output_per_1m": 0.60 },
+  "gpt-4o-mini-audio-preview": { "input_per_1m": 0.15, "cached_input_per_1m": 0.075, "output_per_1m": 0.60 },
+  "gpt-4o-audio-preview": { "input_per_1m": 2.50, "cached_input_per_1m": 1.25, "output_per_1m": 10.00 },
+  "gpt-4o-mini-realtime-preview": { "input_per_1m": 0.60, "cached_input_per_1m": 0.30, "output_per_1m": 2.40 },
+  "gpt-4o-realtime-preview": { "input_per_1m": 5.00, "cached_input_per_1m": 2.50, "output_per_1m": 20.00 },
+  "o3-mini": { "input_per_1m": 1.10, "cached_input_per_1m": 0.55, "output_per_1m": 4.40 },
+  "o1-mini": { "input_per_1m": 1.10, "cached_input_per_1m": 0.55, "output_per_1m": 4.40 },
+  "o1": { "input_per_1m": 15.00, "cached_input_per_1m": 7.50, "output_per_1m": 60.00 }
+};
+
+// OpenAI Batch API Pricing Configuration
+const PRICING_CONFIG_BATCH = {
+"gpt-4o-mini": { "input_per_1m": 0.075, "output_per_1m": 0.30 },
+"o3-mini": { "input_per_1m": 0.55, "output_per_1m": 2.20 },
+"o1-mini": { "input_per_1m": 0.55, "output_per_1m": 2.20 },
+"o1": { "input_per_1m": 7.50, "output_per_1m": 30.00 },
+"gpt-4o": { "input_per_1m": 1.25, "output_per_1m": 5.00 },
+"gpt-4.5-preview": { "input_per_1m": 37.50, "output_per_1m": 75.00 }
+};
   
   /* ======== UI Functions ======== */
   function onOpen() {
@@ -59,6 +74,49 @@ const PRICING_CONFIG = {
     var configSheet = getSheet('Config');
     var model = configSheet.getRange('B2').getValue();
     return model || "gpt-4o-mini";
+  }
+  
+  /**
+   * Gets only the active prompts from the Prompts sheet
+   * @return {Array} Array of active prompts
+   */
+  function getActivePrompts() {
+    var promptsSheet = getSheet('Prompts');
+    var promptsData = promptsSheet.getDataRange().getValues();
+    
+    // Check if we have headers
+    if (promptsData.length <= 1) {
+      return [];
+    }
+    
+    var headers = promptsData[0];
+    var activeColIndex = headers.indexOf("Active");
+    
+    // If Active column doesn't exist, add it
+    if (activeColIndex < 0) {
+      activeColIndex = headers.length;
+      promptsSheet.getRange(1, activeColIndex + 1).setValue("Active");
+      
+      // Set all existing prompts as active by default
+      if (promptsData.length > 1) {
+        var activeRange = promptsSheet.getRange(2, activeColIndex + 1, promptsData.length - 1, 1);
+        activeRange.setValue(1);
+      }
+      
+      // Refresh the data after adding the column
+      promptsData = promptsSheet.getDataRange().getValues();
+      headers = promptsData[0];
+    }
+    
+    // Filter to only include active prompts (where Active = 1)
+    var activePrompts = [];
+    for (var i = 1; i < promptsData.length; i++) {
+      if (promptsData[i][activeColIndex] === 1) {
+        activePrompts.push(promptsData[i]);
+      }
+    }
+    
+    return activePrompts;
   }
   
   function isDebugMode() {
@@ -143,8 +201,8 @@ const PRICING_CONFIG = {
       headers.push("Batch ID");
     }
   
-    var promptsSheet = getSheet('Prompts');
-    var prompts = promptsSheet.getDataRange().getValues().slice(1);
+    // Get only active prompts instead of all prompts
+    var prompts = getActivePrompts();
     var rowsToProcess = Math.min(lastRow, 1 + maxRows);
   
     // Track metrics per prompt type
@@ -590,23 +648,23 @@ const PRICING_CONFIG = {
       headers.push("Batch ID");
     }
     
-    var promptsSheet = getSheet('Prompts');
-    var prompts = promptsSheet.getDataRange().getValues().slice(1);
+    // Get only active prompts instead of all prompts
+    var prompts = getActivePrompts();
     
     var requests = [];
-    var rowMap = {}; // Maps custom_id to row index
+    var rowMap = {}; // Simplified row map
     var rowIndices = []; // Stores row indices that are part of this batch
     
     // Process only rows in the specified range
     for (var rowIndex = startRow - 1; rowIndex < endRow; rowIndex++) {
-      // Skip rows that are already processed (status = 1 or 2) or already part of a batch
+      // Skip rows that are already processed or already part of a batch
       if (dataRange[rowIndex][statusColIndex] > 0 || 
           (batchIdColIndex >= 0 && dataRange[rowIndex][batchIdColIndex] && dataRange[rowIndex][batchIdColIndex] !== "0")) {
         continue;
       }
       
       // Add this row to the list of rows in this batch
-      rowIndices.push(rowIndex + 1); // +1 because rowIndex is 0-based but sheet rows are 1-based
+      rowIndices.push(rowIndex + 1);
       
       for (var p = 0; p < prompts.length; p++) {
         var promptName = prompts[p][0];
@@ -618,10 +676,9 @@ const PRICING_CONFIG = {
         // Create a unique custom_id for this request
         var customId = `row-${rowIndex+1}-prompt-${p+1}`;
         
-        // Store the mapping of custom_id to row and prompt information
+        // Simplified row map - just store the essential information
         rowMap[customId] = {
-          rowIndex: rowIndex + 1,
-          promptIndex: p + 1,
+          row: rowIndex + 1,
           promptName: promptName
         };
         
@@ -904,8 +961,10 @@ const PRICING_CONFIG = {
     var statusColIndex = headers.indexOf("Status");
     var batchIdColIndex = headers.indexOf("Batch ID");
     
-    var lines = outputContent.split('\n');
-    var totalRequests = lines.length;
+    var lines = outputContent.split('\n').filter(line => line.trim()); // Filter out empty lines
+    
+    // Calculate the actual number of requests from the row mapping
+    var totalRequests = Object.keys(rowMap).length;
     var successfulRequests = 0;
     var failedRequests = 0;
     
@@ -927,7 +986,7 @@ const PRICING_CONFIG = {
         
         if (result.error) {
           // Log the error
-          logError(rowInfo.rowIndex, `Batch error for ${rowInfo.promptName}: ${result.error.message}`);
+          logError(rowInfo.row, `Batch error for ${rowInfo.promptName}: ${result.error.message}`);
           failedRequests++;
           continue;
         }
@@ -941,18 +1000,18 @@ const PRICING_CONFIG = {
             var parsedContent = JSON.parse(content);
             
             // Save the response to the Data sheet
-            saveResponseToDataSheet(dataSheet, headers, rowInfo.rowIndex - 1, parsedContent, rowInfo.promptName);
+            saveResponseToDataSheet(dataSheet, headers, rowInfo.row - 1, parsedContent, rowInfo.promptName);
             
             // Mark the row as processed (status = 2 for batch completed)
             if (statusColIndex >= 0) {
-              dataSheet.getRange(rowInfo.rowIndex, statusColIndex + 1).setValue(2);
+              dataSheet.getRange(rowInfo.row, statusColIndex + 1).setValue(2);
             }
             
             // Verify the batch ID matches
             if (batchIdColIndex >= 0) {
-              var currentBatchId = dataSheet.getRange(rowInfo.rowIndex, batchIdColIndex + 1).getValue();
+              var currentBatchId = dataSheet.getRange(rowInfo.row, batchIdColIndex + 1).getValue();
               if (currentBatchId !== batchId) {
-                Logger.log(`Warning: Batch ID mismatch for row ${rowInfo.rowIndex}. Expected: ${batchId}, Found: ${currentBatchId}`);
+                Logger.log(`Warning: Batch ID mismatch for row ${rowInfo.row}. Expected: ${batchId}, Found: ${currentBatchId}`);
               }
             }
             
@@ -984,12 +1043,12 @@ const PRICING_CONFIG = {
             successfulRequests++;
           } catch (e) {
             Logger.log('Error parsing content: ' + e.toString());
-            logError(rowInfo.rowIndex, `Error parsing content for ${rowInfo.promptName}: ${e.toString()}`);
+            logError(rowInfo.row, `Error parsing content for ${rowInfo.promptName}: ${e.toString()}`);
             failedRequests++;
           }
         } else {
           Logger.log('Invalid response: ' + JSON.stringify(response));
-          logError(rowInfo.rowIndex, `Invalid response for ${rowInfo.promptName}`);
+          logError(rowInfo.row, `Invalid response for ${rowInfo.promptName}`);
           failedRequests++;
         }
       } catch (e) {
