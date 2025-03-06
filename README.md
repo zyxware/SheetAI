@@ -103,7 +103,7 @@ Return only valid JSON with the following keys:
 
 All you need to do is create prompts, use the columns you want to include in the prompt as tokens, and click **OpenAI Tools** -> **Run for All Rows**. Wait for the processing to complete and view the results in newly created columns.
 
-As this script is not yet verified by Google, you should be asked for permission. You should follow the steps:
+As this script is not yet verified by Google, you should be asked to authorize the script. You should follow the steps:
 ![Permission to access the AppScript](https://raw.githubusercontent.com/zyxware/SheetAI/refs/heads/main/doc-assets/Permission%20to%20the%20AppScript.png)
 
 We are not capturing any user data or sending data to external systems, the script will run completly on your sheet and only communicate to OpenAI apis. You can get full source code by clicking on Extensions -> AppScript Menu in Google Sheets.
