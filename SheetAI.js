@@ -8,6 +8,189 @@
  * - Logs execution (tokens, costs)
  *********************************/
 
+/**
+ * Configuration keys used in the Config sheet
+ */
+const CONFIG_KEYS = {
+  API_KEY: 'API_KEY',
+  DEFAULT_MODEL: 'DEFAULT_MODEL',
+  DEBUG: 'DEBUG',
+  BATCH_SIZE: 'BATCH_SIZE'
+};
+
+/**
+ * Default values for configuration
+ */
+const CONFIG_DEFAULTS = {
+  DEFAULT_MODEL: 'gpt-4o-mini',
+  DEBUG: false,
+  BATCH_SIZE: 2000
+};
+
+/**
+ * Gets a configuration value from the Config sheet
+ * @param {string} key - The configuration key
+ * @returns {any} The configuration value or undefined if not found
+ */
+function getConfigValue(key) {
+  var configSheet = getSheet('Config');
+  
+  // If Config sheet doesn't exist, return undefined
+  if (!configSheet) {
+    return undefined;
+  }
+  
+  var configData = configSheet.getDataRange().getValues();
+  
+  // Look for the key in the Config sheet
+  for (var i = 0; i < configData.length; i++) {
+    if (configData[i][0] === key) {
+      return configData[i][1];
+    }
+  }
+  
+  // Key not found
+  return undefined;
+}
+
+/**
+ * Gets the API key from the Config sheet
+ * @returns {string} The API key
+ */
+function getApiKey() {
+  return getConfigValue(CONFIG_KEYS.API_KEY);
+}
+
+/**
+ * Gets the default model from the Config sheet or uses the default
+ * @returns {string} The default model
+ */
+function getDefaultModel() {
+  var model = getConfigValue(CONFIG_KEYS.DEFAULT_MODEL);
+  return model !== undefined ? model : CONFIG_DEFAULTS.DEFAULT_MODEL;
+}
+
+/**
+ * Gets the batch size from the Config sheet or uses the default
+ * @returns {number} The batch size
+ */
+function getBatchSize() {
+  var size = getConfigValue(CONFIG_KEYS.BATCH_SIZE);
+  return size !== undefined ? size : CONFIG_DEFAULTS.BATCH_SIZE;
+}
+
+/**
+ * Checks if debug mode is enabled
+ * @returns {boolean} True if debug mode is enabled
+ */
+function isDebugModeEnabled() {
+  var debug = getConfigValue(CONFIG_KEYS.DEBUG);
+  if (debug === undefined) {
+    return CONFIG_DEFAULTS.DEBUG;
+  }
+  return debug === true || debug === 'TRUE' || debug === 'Yes' || debug === 'true';
+}
+
+/**
+ * Validates that required configuration is set
+ * @returns {boolean} True if configuration is valid
+ */
+function validateConfig() {
+  var apiKey = getApiKey();
+  
+  if (!apiKey) {
+    SpreadsheetApp.getUi().alert(
+      'Configuration Error',
+      'API_KEY is not set. Please add your OpenAI API key to the Config sheet.',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Ensures the Config sheet has all required settings
+ */
+function ensureConfigSheet() {
+  var configSheet = getSheet('Config');
+  
+  // Create the sheet if it doesn't exist
+  if (!configSheet) {
+    configSheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet('Config');
+    configSheet.appendRow(['Key', 'Value']);
+    configSheet.getRange(1, 1, 1, 2).setFontWeight('bold');
+  }
+  
+  var configData = configSheet.getDataRange().getValues();
+  
+  // Create a map of existing keys
+  var existingKeys = {};
+  for (var i = 0; i < configData.length; i++) {
+    existingKeys[configData[i][0]] = true;
+  }
+  
+  // Add missing keys with default values
+  if (!existingKeys[CONFIG_KEYS.API_KEY]) {
+    configSheet.appendRow([CONFIG_KEYS.API_KEY, '']);
+  }
+  
+  if (!existingKeys[CONFIG_KEYS.DEFAULT_MODEL]) {
+    configSheet.appendRow([CONFIG_KEYS.DEFAULT_MODEL, 'gpt-4o-mini']);
+  }
+  
+  if (!existingKeys[CONFIG_KEYS.DEBUG]) {
+    configSheet.appendRow([CONFIG_KEYS.DEBUG, false]);
+  }
+  
+  if (!existingKeys[CONFIG_KEYS.BATCH_SIZE]) {
+    configSheet.appendRow([CONFIG_KEYS.BATCH_SIZE, 2000]);
+  }
+  
+  // Check for old keys and migrate them
+  for (var i = 1; i < configData.length; i++) {
+    // Migrate "Batch Size" to "BATCH_SIZE"
+    if (configData[i][0] === 'Batch Size') {
+      var oldValue = configData[i][1];
+      
+      // Only update if the new key doesn't already exist
+      if (!existingKeys[CONFIG_KEYS.BATCH_SIZE]) {
+        configSheet.appendRow([CONFIG_KEYS.BATCH_SIZE, oldValue]);
+      }
+      
+      // Optionally, mark the old row as deprecated
+      configSheet.getRange(i+1, 1).setValue('DEPRECATED_Batch_Size');
+    }
+    
+    // Migrate "API Key" to "API_KEY"
+    if (configData[i][0] === 'API Key') {
+      var oldValue = configData[i][1];
+      
+      // Only update if the new key doesn't already exist
+      if (!existingKeys[CONFIG_KEYS.API_KEY]) {
+        configSheet.appendRow([CONFIG_KEYS.API_KEY, oldValue]);
+      }
+      
+      // Optionally, mark the old row as deprecated
+      configSheet.getRange(i+1, 1).setValue('DEPRECATED_API_Key');
+    }
+    
+    // Migrate "Debug Mode" to "DEBUG"
+    if (configData[i][0] === 'Debug Mode') {
+      var oldValue = configData[i][1];
+      
+      // Only update if the new key doesn't already exist
+      if (!existingKeys[CONFIG_KEYS.DEBUG]) {
+        configSheet.appendRow([CONFIG_KEYS.DEBUG, oldValue]);
+      }
+      
+      // Optionally, mark the old row as deprecated
+      configSheet.getRange(i+1, 1).setValue('DEPRECATED_Debug_Mode');
+    }
+  }
+}
+
 // OpenAI Pricing Configuration
 const PRICING_CONFIG = {
   "gpt-4.5-preview": { "input_per_1m": 75.00, "cached_input_per_1m": 37.50, "output_per_1m": 150.00 },
@@ -34,34 +217,318 @@ const PRICING_CONFIG_BATCH = {
   
   /* ======== UI Functions ======== */
   function onOpen() {
+    // Ensure config sheet has all required settings
+    ensureConfigSheet();
+    
+    // Create the menu
     SpreadsheetApp.getUi()
       .createMenu('OpenAI Tools')
       .addItem('Run for First 10 Rows', 'runPromptsForFirst10Rows')
       .addItem('Run for All Rows', 'runPromptsForAllRows')
-      .addSubMenu(SpreadsheetApp.getUi().createMenu('Batch Processing')
-        .addItem('Create Batch for First 10 Rows', 'createBatchForFirst10Rows')
-        .addItem('Create Batch for All Rows', 'createBatchForAllRows')
-        .addItem('Check Batch Status', 'checkBatchStatus')
-        .addItem('Process Completed Batch', 'processCompletedBatch')
-        .addItem('Cancel Current Batch', 'cancelCurrentBatch')
-        .addItem('List All Batches', 'listAllBatches'))
+      .addSeparator()
+      .addItem('Create Batch', 'createBatchWithConfigLimit')
+      .addItem('Check and Process Batch', 'checkAndProcessNextCompletedBatch')
+      .addItem('Check Batch Status', 'checkBatchStatus')
       .addToUi();
   }
   
   function runPromptsForFirst10Rows() {
+    if (!validateConfig()) return;
     runPrompts(10);
   }
   
   function runPromptsForAllRows() {
+    if (!validateConfig()) return;
     runPrompts(Infinity);
   }
   
-  function createBatchForFirst10Rows() {
-    createBatch(10);
+  function createBatchWithConfigLimit() {
+    if (!validateConfig()) return;
+    
+    // Check if a batch is already being created
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(1000)) {
+      showDebugAlert('Batch Creation in Progress', 
+                    'A batch is already being created. Please wait until it completes.', 
+                    SpreadsheetApp.getUi().ButtonSet.OK);
+      return;
+    }
+    
+    try {
+      // Get the batch size from config
+      var batchSize = getBatchSize();
+      createBatch(Infinity, batchSize);
+    } finally {
+      lock.releaseLock();
+    }
   }
   
-  function createBatchForAllRows() {
-    createBatch(Infinity);
+  function checkBatchStatus() {
+    if (!validateConfig()) return;
+    
+    var ui = SpreadsheetApp.getUi();
+    
+    try {
+      // First check our local Batch Status sheet
+      var batchStatusSheet = getSheet('Batch Status');
+      if (batchStatusSheet.getLastRow() <= 1) {
+        showDebugAlert('No Batches', 'No batch jobs were found in the Batch Status sheet.', ui.ButtonSet.OK);
+        return;
+      }
+      
+      var batchData = batchStatusSheet.getDataRange().getValues();
+      var headers = batchData[0];
+      
+      var openAIBatchIdColIndex = headers.indexOf("OpenAI Batch ID");
+      var statusColIndex = headers.indexOf("Status");
+      var lastCheckedColIndex = headers.indexOf("Last Checked At");
+      var outputFileIdColIndex = headers.indexOf("Output File ID");
+      var totalRequestsColIndex = headers.indexOf("Total Requests");
+      var completedColIndex = headers.indexOf("Completed");
+      var failedColIndex = headers.indexOf("Failed");
+      var processedColIndex = headers.indexOf("Processed");
+      
+      // Add Processed column if it doesn't exist
+      if (processedColIndex < 0) {
+        processedColIndex = headers.length;
+        batchStatusSheet.getRange(1, processedColIndex + 1).setValue("Processed");
+        headers.push("Processed");
+        
+        // Initialize all existing rows with "No" for Processed
+        for (var i = 1; i < batchData.length; i++) {
+          batchStatusSheet.getRange(i + 1, processedColIndex + 1).setValue("No");
+        }
+      }
+      
+      if (openAIBatchIdColIndex < 0 || statusColIndex < 0) {
+        ui.alert('Error', 'Batch Status sheet is missing required columns.', ui.ButtonSet.OK);
+        return;
+      }
+      
+      // Get all batches from OpenAI
+      var openAIBatches = fetchAllBatches();
+      var openAIBatchesMap = {};
+      
+      // Create a map for quick lookup
+      for (var i = 0; i < openAIBatches.length; i++) {
+        openAIBatchesMap[openAIBatches[i].id] = openAIBatches[i];
+      }
+      
+      var updatedCount = 0;
+      
+      // Update status for each batch in our sheet
+      for (var i = 1; i < batchData.length; i++) {
+        var openAIBatchId = batchData[i][openAIBatchIdColIndex];
+        var currentStatus = batchData[i][statusColIndex];
+        var currentProcessed = batchData[i][processedColIndex] || "No";
+        
+        // Skip batches that are already processed
+        if (currentProcessed === "Yes") continue;
+        
+        // Check if this batch exists in OpenAI
+        if (openAIBatchId && openAIBatchesMap[openAIBatchId]) {
+          var openAIBatch = openAIBatchesMap[openAIBatchId];
+          
+          // If the status has changed or we need to update counts
+          if (openAIBatch.status !== currentStatus || 
+              (completedColIndex >= 0 && openAIBatch.request_counts.completed !== batchData[i][completedColIndex])) {
+            
+            // Get the full batch details
+            var fullBatchDetails = retrieveBatch(openAIBatchId);
+            
+            // Update status
+            batchStatusSheet.getRange(i + 1, statusColIndex + 1).setValue(fullBatchDetails.status);
+            batchStatusSheet.getRange(i + 1, lastCheckedColIndex + 1).setValue(new Date().toISOString());
+            
+            // Update request counts
+            if (totalRequestsColIndex >= 0) {
+              batchStatusSheet.getRange(i + 1, totalRequestsColIndex + 1).setValue(fullBatchDetails.request_counts.total);
+            }
+            
+            if (completedColIndex >= 0) {
+              batchStatusSheet.getRange(i + 1, completedColIndex + 1).setValue(fullBatchDetails.request_counts.completed);
+            }
+            
+            if (failedColIndex >= 0) {
+              batchStatusSheet.getRange(i + 1, failedColIndex + 1).setValue(fullBatchDetails.request_counts.failed);
+            }
+            
+            // Update the output file ID if available
+            if (fullBatchDetails.output_file_id && outputFileIdColIndex >= 0) {
+              batchStatusSheet.getRange(i + 1, outputFileIdColIndex + 1).setValue(fullBatchDetails.output_file_id);
+            }
+            
+            updatedCount++;
+            debugLog(`Updated batch ${openAIBatchId} status from ${currentStatus} to ${fullBatchDetails.status}`);
+          }
+        }
+      }
+      
+      if (updatedCount > 0) {
+        showDebugAlert('Batch Status Updated', `Updated status for ${updatedCount} batches.`, ui.ButtonSet.OK);
+      } else {
+        showDebugAlert('No Updates', 'No batch status updates were needed.', ui.ButtonSet.OK);
+      }
+      
+      // Activate the Batch Status sheet
+      SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(batchStatusSheet);
+      
+    } catch (e) {
+      debugLog('Error checking batch status: ' + e.toString());
+      showDebugAlert('Error', 'Failed to check batch status: ' + e.toString(), ui.ButtonSet.OK, true);
+    }
+  }
+  
+  function checkAndProcessNextCompletedBatch() {
+    if (!validateConfig()) return;
+    
+    // Check if a batch is already being processed
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(1000)) {
+      showDebugAlert('Batch Processing in Progress', 
+                    'A batch is already being checked or processed. Please wait until it completes.', 
+                    SpreadsheetApp.getUi().ButtonSet.OK);
+      return;
+    }
+    
+    try {
+      var ui = SpreadsheetApp.getUi();
+      
+      // First check our local Batch Status sheet to find batches that need processing
+      var batchStatusSheet = getSheet('Batch Status');
+      if (batchStatusSheet.getLastRow() <= 1) {
+        showDebugAlert('No Batches', 'No batch jobs were found in the Batch Status sheet.', ui.ButtonSet.OK);
+        return;
+      }
+      
+      var batchData = batchStatusSheet.getDataRange().getValues();
+      var headers = batchData[0];
+      
+      var openAIBatchIdColIndex = headers.indexOf("OpenAI Batch ID");
+      var statusColIndex = headers.indexOf("Status");
+      var lastCheckedColIndex = headers.indexOf("Last Checked At");
+      var outputFileIdColIndex = headers.indexOf("Output File ID");
+      var processedColIndex = headers.indexOf("Processed");
+      
+      // Add Processed column if it doesn't exist
+      if (processedColIndex < 0) {
+        processedColIndex = headers.length;
+        batchStatusSheet.getRange(1, processedColIndex + 1).setValue("Processed");
+        headers.push("Processed");
+        
+        // Initialize all existing rows with "No" for Processed
+        for (var i = 1; i < batchData.length; i++) {
+          batchStatusSheet.getRange(i + 1, processedColIndex + 1).setValue("No");
+        }
+      }
+      
+      if (openAIBatchIdColIndex < 0 || statusColIndex < 0) {
+        showDebugAlert('Error', 'Batch Status sheet is missing required columns.', ui.ButtonSet.OK, true);
+        return;
+      }
+      
+      // Get all batches from OpenAI
+      var openAIBatches = fetchAllBatches();
+      var openAIBatchesMap = {};
+      
+      // Create a map for quick lookup
+      for (var i = 0; i < openAIBatches.length; i++) {
+        openAIBatchesMap[openAIBatches[i].id] = openAIBatches[i];
+      }
+      
+      var batchToProcess = null;
+      var batchRowIndex = -1;
+      
+      // First, update the status of all batches
+      for (var i = 1; i < batchData.length; i++) {
+        var openAIBatchId = batchData[i][openAIBatchIdColIndex];
+        var currentStatus = batchData[i][statusColIndex];
+        var currentProcessed = batchData[i][processedColIndex] || "No";
+        
+        // Skip batches that are already processed
+        if (currentProcessed === "Yes") continue;
+        
+        // Check if this batch exists in OpenAI
+        if (openAIBatchId && openAIBatchesMap[openAIBatchId]) {
+          var openAIBatch = openAIBatchesMap[openAIBatchId];
+          
+          // If the status has changed
+          if (openAIBatch.status !== currentStatus) {
+            // Get the full batch details
+            var fullBatchDetails = retrieveBatch(openAIBatchId);
+            
+            // Update status
+            batchStatusSheet.getRange(i + 1, statusColIndex + 1).setValue(fullBatchDetails.status);
+            batchStatusSheet.getRange(i + 1, lastCheckedColIndex + 1).setValue(new Date().toISOString());
+            
+            // Update the output file ID if available
+            if (fullBatchDetails.output_file_id && outputFileIdColIndex >= 0) {
+              batchStatusSheet.getRange(i + 1, outputFileIdColIndex + 1).setValue(fullBatchDetails.output_file_id);
+              debugLog(`Updated output file ID for batch ${openAIBatchId}: ${fullBatchDetails.output_file_id}`);
+            }
+            
+            debugLog(`Updated batch ${openAIBatchId} status from ${currentStatus} to ${fullBatchDetails.status}`);
+            
+            // If the batch is completed in OpenAI but not in our sheet, this is the one to process
+            if (fullBatchDetails.status === "completed" && currentProcessed === "No") {
+              batchToProcess = fullBatchDetails;
+              batchRowIndex = i;
+              break;
+            }
+          }
+        }
+      }
+      
+      // If we found a batch to process, process it
+      if (batchToProcess) {
+        debugLog(`Processing batch ${batchToProcess.id} which is completed in OpenAI`);
+        
+        // Process the batch
+        var result = processBatchById(batchToProcess.id);
+        
+        if (result) {
+          // Mark the batch as processed in our sheet
+          batchStatusSheet.getRange(batchRowIndex + 1, processedColIndex + 1).setValue("Yes");
+          
+          showDebugAlert('Success', `Batch processed successfully! Batch ID: ${batchToProcess.id}`, ui.ButtonSet.OK);
+        } else {
+          showDebugAlert('Error', `Failed to process batch ${batchToProcess.id}. Check the logs for details.`, ui.ButtonSet.OK, true);
+        }
+        return;
+      }
+      
+      // If we didn't find any completed batches, show the status of in-progress batches
+      var inProgressCount = 0;
+      var statusMessage = "No completed batches found to process. Current batch status:\n\n";
+      
+      for (var i = 1; i < batchData.length; i++) {
+        var openAIBatchId = batchData[i][openAIBatchIdColIndex];
+        var currentStatus = batchData[i][statusColIndex];
+        var currentProcessed = batchData[i][processedColIndex] || "No";
+        
+        if (currentProcessed === "No" && openAIBatchId && openAIBatchesMap[openAIBatchId]) {
+          var openAIBatch = openAIBatchesMap[openAIBatchId];
+          statusMessage += `Batch ${inProgressCount+1}: ${openAIBatch.id} - Status: ${openAIBatch.status} - `;
+          statusMessage += `${openAIBatch.request_counts.completed} of ${openAIBatch.request_counts.total} completed\n`;
+          inProgressCount++;
+          
+          if (inProgressCount >= 5) break;
+        }
+      }
+      
+      if (inProgressCount > 0) {
+        statusMessage += "\nPlease check again later.";
+        showDebugAlert('Batch Status', statusMessage, ui.ButtonSet.OK);
+      } else {
+        showDebugAlert('No Batches', 'No unprocessed batches were found to process.', ui.ButtonSet.OK);
+      }
+      
+    } catch (e) {
+      debugLog('Error checking batches: ' + e.toString());
+      showDebugAlert('Error', 'Failed to check or process batches: ' + e.toString(), ui.ButtonSet.OK, true);
+    } finally {
+      lock.releaseLock();
+    }
   }
   
   /* ======== Utility Functions ======== */
@@ -390,7 +857,7 @@ const PRICING_CONFIG_BATCH = {
         }
       }
     } catch (e) {
-      Logger.log("Error processing response: " + e);
+      debugLog("Error processing response: " + e);
       logError(rowIndex + 1, "Error processing response: " + e.toString());
     }
   }
@@ -472,147 +939,122 @@ const PRICING_CONFIG_BATCH = {
   /* ======== Batch Processing Functions ======== */
   
   /**
-   * Creates a batch processing job for the specified number of rows
+   * Creates a batch job for the specified number of rows
    */
-  function createBatch(maxRows) {
+  function createBatch(maxRows, batchSize) {
     var ui = SpreadsheetApp.getUi();
     var apiKey = getApiKey();
     
     if (!apiKey) {
-      ui.alert('Error', 'API key is missing. Please add it to the Config sheet.', ui.ButtonSet.OK);
+      showDebugAlert('Error', 'API key is missing. Please add it to the Config sheet.', ui.ButtonSet.OK, true);
       return;
     }
     
     try {
-      // Get the configured batch size
-      var batchSize = getBatchSize();
-      
       // Find the next set of rows to process
       var nextBatchInfo = findNextBatchRows(maxRows, batchSize);
       
       if (!nextBatchInfo || nextBatchInfo.startRow > nextBatchInfo.endRow) {
-        ui.alert('No Data', 'No more rows to process or all rows are already processed.', ui.ButtonSet.OK);
+        showDebugAlert('No Data', 'No more rows to process or all rows are already processed.', ui.ButtonSet.OK);
         return;
       }
       
-      // Prepare the batch file for the selected range of rows
+      // Prepare the batch data
       var batchData = prepareBatchDataRange(nextBatchInfo.startRow, nextBatchInfo.endRow);
-      if (!batchData || batchData.requests.length === 0) {
-        ui.alert('No Data', 'No rows to process in the selected range.', ui.ButtonSet.OK);
+      
+      // Check if there are any requests to process
+      if (!batchData || !batchData.requests || batchData.requests.length === 0) {
+        showDebugAlert('No Data', 'No requests to process in the selected rows.', ui.ButtonSet.OK);
         return;
       }
       
       // Check batch size limits
       if (batchData.requests.length > 50000) {
-        ui.alert('Batch Too Large', 
-                 'This batch contains ' + batchData.requests.length + ' requests, which exceeds the OpenAI limit of 50,000 requests per batch. Please reduce the batch size in Config.',
+        showDebugAlert('Batch Too Large', 
+                 'This batch contains ' + batchData.requests.length + ' requests, which exceeds the OpenAI limit of ' + CONFIG_KEYS.BATCH_SIZE + ' requests per batch. Please reduce the ' + CONFIG_KEYS.BATCH_SIZE + ' in Config.',
                  ui.ButtonSet.OK);
         return;
       }
       
-      // Create the JSONL content
-      var jsonlContent = createJsonlContent(batchData.requests);
-      
-      // Estimate JSONL file size
-      var estimatedSizeMB = jsonlContent.length / (1024 * 1024);
-      if (estimatedSizeMB > 200) {
-        ui.alert('Batch File Too Large', 
-                 'The estimated batch file size is ' + estimatedSizeMB.toFixed(2) + ' MB, which exceeds the OpenAI limit of 200 MB. Please reduce the batch size in Config.',
-                 ui.ButtonSet.OK);
-        return;
-      }
-      
-      // Upload the file to OpenAI
-      var fileId = uploadFileToOpenAI(jsonlContent);
-      if (!fileId) {
-        ui.alert('Error', 'Failed to upload batch file to OpenAI.', ui.ButtonSet.OK);
-        return;
-      }
-      
-      // Create the batch
-      var batch = createOpenAIBatch(fileId);
-      if (!batch) {
-        ui.alert('Error', 'Failed to create batch job.', ui.ButtonSet.OK);
-        return;
-      }
+      // Create the batch job
+      var batch = createBatchJob(batchData.requests);
       
       // Store batch information in the Batch Status sheet
-      var batchId = storeBatchInfo(batch, batchData.rowMap);
+      var batchId = storeBatchInfo(batch, batchData.rowIndices);
       
       // Update the Data sheet with batch IDs
       updateDataSheetWithBatchId(batchData.rowIndices, batchId);
       
-      ui.alert('Success', 
+      showDebugAlert('Success', 
                `Batch job created successfully!\n\nProcessed rows ${nextBatchInfo.startRow} to ${nextBatchInfo.endRow}\nBatch ID: ${batch.id}\nStatus: ${batch.status}\nTotal Requests: ${batchData.requests.length}\n\n${nextBatchInfo.remainingRows > 0 ? 'There are ' + nextBatchInfo.remainingRows + ' more rows to process. Run "Create Batch" again to process the next set.' : 'All rows have been processed.'}`, 
                ui.ButtonSet.OK);
                
     } catch (e) {
-      Logger.log('Error creating batch: ' + e.toString());
-      ui.alert('Error', 'Failed to create batch: ' + e.toString(), ui.ButtonSet.OK);
+      debugLog('Error creating batch: ' + e.toString());
+      showDebugAlert('Error', 'Failed to create batch: ' + e.toString(), ui.ButtonSet.OK, true);
     }
   }
   
   /**
-   * Finds the next set of rows to process based on batch size
+   * Finds the next set of rows to process
    */
   function findNextBatchRows(maxRows, batchSize) {
     var dataSheet = getSheet('Data');
+    
+    if (!dataSheet) {
+      return null;
+    }
+    
     var lastRow = dataSheet.getLastRow();
+    
+    // If there's only a header row or no data at all
+    if (lastRow <= 1) {
+      return null;
+    }
+    
     var dataRange = dataSheet.getRange(1, 1, lastRow, dataSheet.getLastColumn()).getValues();
     var headers = dataRange[0];
     
-    // Ensure Status column exists
+    // Find the Status column
     var statusColIndex = headers.indexOf("Status");
     if (statusColIndex < 0) {
+      // If no Status column exists, add one
       statusColIndex = headers.length;
       dataSheet.getRange(1, statusColIndex + 1).setValue("Status");
+      
+      // Update our local copy of the data
       headers.push("Status");
+      for (var i = 1; i < dataRange.length; i++) {
+        dataRange[i][statusColIndex] = 0;
+      }
     }
     
-    // Ensure Batch ID column exists
-    var batchIdColIndex = headers.indexOf("Batch ID");
-    if (batchIdColIndex < 0) {
-      batchIdColIndex = headers.length;
-      dataSheet.getRange(1, batchIdColIndex + 1).setValue("Batch ID");
-      headers.push("Batch ID");
-    }
-    
-    var rowsToProcess = Math.min(lastRow, 1 + maxRows);
+    // Find the first row that hasn't been processed yet
     var startRow = -1;
-    var endRow = -1;
-    var remainingRows = 0;
-    
-    // Find the first unprocessed row
-    for (var rowIndex = 1; rowIndex < rowsToProcess; rowIndex++) {
-      // Skip rows that are already processed (status = 1 or 2) or already part of a batch
-      if (dataRange[rowIndex][statusColIndex] > 0 || 
-          (batchIdColIndex >= 0 && dataRange[rowIndex][batchIdColIndex] && dataRange[rowIndex][batchIdColIndex] !== "0")) {
-        continue;
-      }
-      
-      if (startRow === -1) {
-        startRow = rowIndex + 1; // +1 because rowIndex is 0-based but sheet rows are 1-based
-      }
-      
-      // If we've found enough rows for this batch, set the end row
-      if (rowIndex - (startRow - 1) + 1 >= batchSize) { // +1 to include the current row
-        endRow = rowIndex + 1; // +1 to include the current row in sheet coordinates
+    for (var i = 1; i < dataRange.length; i++) {
+      if (!dataRange[i][statusColIndex] || dataRange[i][statusColIndex] === 0) {
+        startRow = i + 1; // +1 because row indices are 1-based
         break;
       }
     }
     
-    // If we didn't find enough rows to fill a batch, use all remaining rows
-    if (startRow !== -1 && endRow === -1) {
-      endRow = rowsToProcess; // Use the actual last row to process (not -1)
+    // If no unprocessed rows were found
+    if (startRow === -1) {
+      return {
+        startRow: 0,
+        endRow: 0,
+        remainingRows: 0
+      };
     }
     
-    // Count remaining rows after this batch
-    if (endRow !== -1 && endRow < rowsToProcess) {
-      for (var rowIndex = endRow; rowIndex < rowsToProcess; rowIndex++) { // Start from endRow (not +1)
-        if (dataRange[rowIndex][statusColIndex] === 0 && 
-            (!dataRange[rowIndex][batchIdColIndex] || dataRange[rowIndex][batchIdColIndex] === "0")) {
-          remainingRows++;
-        }
+    // Calculate the end row based on batch size
+    var endRow = Math.min(startRow + batchSize - 1, lastRow);
+    
+    // Count how many rows are left after this batch
+    var remainingRows = 0;
+    for (var i = endRow; i < dataRange.length; i++) {
+      if (!dataRange[i][statusColIndex] || dataRange[i][statusColIndex] === 0) {
+        remainingRows++;
       }
     }
     
@@ -627,8 +1069,36 @@ const PRICING_CONFIG_BATCH = {
    * Prepares batch data for a specific range of rows
    */
   function prepareBatchDataRange(startRow, endRow) {
+    // If invalid range, return empty result
+    if (startRow <= 0 || endRow <= 0 || startRow > endRow) {
+      return {
+        requests: [],
+        rowIndices: []
+      };
+    }
+    
     var dataSheet = getSheet('Data');
+    
+    if (!dataSheet) {
+      return {
+        requests: [],
+        rowIndices: []
+      };
+    }
+    
     var lastRow = dataSheet.getLastRow();
+    
+    // Adjust endRow if it exceeds the actual data
+    endRow = Math.min(endRow, lastRow);
+    
+    // If we're only looking at the header row
+    if (startRow === 1 && endRow === 1) {
+      return {
+        requests: [],
+        rowIndices: []
+      };
+    }
+    
     var dataRange = dataSheet.getRange(1, 1, lastRow, dataSheet.getLastColumn()).getValues();
     var headers = dataRange[0];
     
@@ -648,22 +1118,22 @@ const PRICING_CONFIG_BATCH = {
       headers.push("Batch ID");
     }
     
-    // Get only active prompts instead of all prompts
+    // Get only active prompts
     var prompts = getActivePrompts();
     
     var requests = [];
-    var rowMap = {}; // Simplified row map
     var rowIndices = []; // Stores row indices that are part of this batch
     
     // Process only rows in the specified range
     for (var rowIndex = startRow - 1; rowIndex < endRow; rowIndex++) {
       // Skip rows that are already processed or already part of a batch
-      if (dataRange[rowIndex][statusColIndex] > 0 || 
-          (batchIdColIndex >= 0 && dataRange[rowIndex][batchIdColIndex] && dataRange[rowIndex][batchIdColIndex] !== "0")) {
+      if (rowIndex >= dataRange.length || 
+          (dataRange[rowIndex][statusColIndex] > 0 || 
+           dataRange[rowIndex][batchIdColIndex])) {
         continue;
       }
       
-      // Add this row to the list of rows in this batch
+      // Add this row to the batch
       rowIndices.push(rowIndex + 1);
       
       for (var p = 0; p < prompts.length; p++) {
@@ -673,14 +1143,10 @@ const PRICING_CONFIG_BATCH = {
         
         var finalPrompt = replacePlaceholders(promptText, headers, dataRange[rowIndex]);
         
-        // Create a unique custom_id for this request
-        var customId = `row-${rowIndex+1}-prompt-${p+1}`;
-        
-        // Simplified row map - just store the essential information
-        rowMap[customId] = {
-          row: rowIndex + 1,
-          promptName: promptName
-        };
+        // Create a unique custom_id that encodes all necessary information
+        // Format: row-{rowIndex}-prompt-{promptIndex}-{promptName}
+        // This way we can extract all needed info from the custom_id itself
+        var customId = `row-${rowIndex+1}-prompt-${p+1}-${encodeURIComponent(promptName)}`;
         
         // Create the request object
         var request = {
@@ -706,7 +1172,6 @@ const PRICING_CONFIG_BATCH = {
     
     return {
       requests: requests,
-      rowMap: rowMap,
       rowIndices: rowIndices
     };
   }
@@ -735,425 +1200,117 @@ const PRICING_CONFIG_BATCH = {
   /**
    * Stores batch information in the Batch Status sheet
    */
-  function storeBatchInfo(batch, rowMap) {
+  function storeBatchInfo(batch, rowIndices) {
     var batchStatusSheet = getSheet('Batch Status');
     
-    // Initialize headers if sheet is empty
+    // Check if the sheet has headers
     if (batchStatusSheet.getLastRow() === 0) {
       batchStatusSheet.appendRow([
-        "Batch ID", 
+        "Batch ID",
         "OpenAI Batch ID",
-        "Status", 
-        "Created At", 
+        "Status",
+        "Created At",
         "Last Checked At",
-        "Input File ID", 
-        "Output File ID", 
-        "Error File ID", 
-        "Total Requests", 
-        "Completed", 
-        "Failed", 
-        "Row Mapping"
+        "Input File ID",
+        "Output File ID",
+        "Error File ID",
+        "Total Requests",
+        "Completed",
+        "Failed",
+        "Processed"
       ]);
     }
     
-    // Generate a unique batch ID for our system
+    // Generate a unique batch ID
     var batchId = Utilities.getUuid();
     
-    // Format the creation date
-    var createdDate = new Date(batch.created_at * 1000).toISOString();
-    var currentDate = new Date().toISOString();
-    
-    // Store the row mapping as JSON
-    var rowMapJson = JSON.stringify(rowMap);
-    
+    // Add the batch information
     batchStatusSheet.appendRow([
       batchId,
       batch.id,
       batch.status,
-      createdDate,
-      currentDate,
+      new Date().toISOString(),
+      new Date().toISOString(),
       batch.input_file_id,
       batch.output_file_id || "",
       batch.error_file_id || "",
       batch.request_counts.total,
       batch.request_counts.completed,
       batch.request_counts.failed,
-      rowMapJson
+      "No"  // Not processed yet
     ]);
     
     return batchId;
   }
   
   /**
-   * Checks the status of the most recent batch
+   * Processes a specific batch by its OpenAI batch ID
    */
-  function checkBatchStatus() {
-    var ui = SpreadsheetApp.getUi();
+  function processBatchById(openAIBatchId) {
     var batchStatusSheet = getSheet('Batch Status');
     
-    if (batchStatusSheet.getLastRow() <= 1) {
-      ui.alert('No Batches', 'No batch jobs have been created yet.', ui.ButtonSet.OK);
-      return;
-    }
+    if (batchStatusSheet.getLastRow() <= 1) return false;
     
-    // Get all batches
     var batchData = batchStatusSheet.getDataRange().getValues();
     var headers = batchData[0];
     
-    // Find column indices
-    var batchIdColIndex = headers.indexOf("Batch ID");
     var openAIBatchIdColIndex = headers.indexOf("OpenAI Batch ID");
-    var statusColIndex = headers.indexOf("Status");
-    var lastCheckedColIndex = headers.indexOf("Last Checked At");
-    var outputFileIdColIndex = headers.indexOf("Output File ID");
-    
-    if (batchIdColIndex < 0 || openAIBatchIdColIndex < 0 || statusColIndex < 0) {
-      ui.alert('Error', 'Batch Status sheet has invalid format.', ui.ButtonSet.OK);
-      return;
-    }
-    
-    // Find batches that are not in a final state
-    var activeBatches = [];
-    for (var i = 1; i < batchData.length; i++) {
-      var status = batchData[i][statusColIndex];
-      if (status !== 'completed' && status !== 'failed' && status !== 'expired' && status !== 'cancelled') {
-        activeBatches.push({
-          rowIndex: i + 1,
-          batchId: batchData[i][batchIdColIndex],
-          openAIBatchId: batchData[i][openAIBatchIdColIndex]
-        });
-      }
-    }
-    
-    if (activeBatches.length === 0) {
-      ui.alert('No Active Batches', 'There are no active batches to check. All batches are in a final state.', ui.ButtonSet.OK);
-      return;
-    }
-    
-    // Check each active batch
-    var updatedBatches = 0;
-    var completedBatches = 0;
-    
-    for (var i = 0; i < activeBatches.length; i++) {
-      var batchInfo = activeBatches[i];
-      
-      try {
-        var batch = retrieveBatch(batchInfo.openAIBatchId);
-        if (!batch) continue;
-        
-        // Update the batch information in the sheet
-        batchStatusSheet.getRange(batchInfo.rowIndex, statusColIndex + 1).setValue(batch.status);
-        batchStatusSheet.getRange(batchInfo.rowIndex, lastCheckedColIndex + 1).setValue(new Date().toISOString());
-        batchStatusSheet.getRange(batchInfo.rowIndex, outputFileIdColIndex + 1).setValue(batch.output_file_id || "");
-        
-        updatedBatches++;
-        
-        if (batch.status === 'completed') {
-          completedBatches++;
-        }
-      } catch (e) {
-        Logger.log('Error checking batch status: ' + e.toString());
-      }
-    }
-    
-    if (completedBatches > 0) {
-      var response = ui.alert('Batches Ready', 
-                             `${completedBatches} batch(es) are complete and ready to process. Would you like to process them now?`, 
-                             ui.ButtonSet.YES_NO);
-                             
-      if (response === ui.Button.YES) {
-        processCompletedBatches();
-      }
-    } else {
-      ui.alert('Batch Status Updated', 
-               `Updated status for ${updatedBatches} batch(es). No batches are ready for processing yet.`, 
-               ui.ButtonSet.OK);
-    }
-  }
-  
-  /**
-   * Processes all completed batches
-   */
-  function processCompletedBatches() {
-    var ui = SpreadsheetApp.getUi();
-    var batchStatusSheet = getSheet('Batch Status');
-    
-    if (batchStatusSheet.getLastRow() <= 1) {
-      ui.alert('No Batches', 'No batch jobs have been created yet.', ui.ButtonSet.OK);
-      return;
-    }
-    
-    // Get all batches
-    var batchData = batchStatusSheet.getDataRange().getValues();
-    var headers = batchData[0];
-    
-    // Find column indices
     var batchIdColIndex = headers.indexOf("Batch ID");
     var statusColIndex = headers.indexOf("Status");
     var outputFileIdColIndex = headers.indexOf("Output File ID");
-    var rowMappingColIndex = headers.indexOf("Row Mapping");
+    var processedColIndex = headers.indexOf("Processed");
     
-    if (batchIdColIndex < 0 || statusColIndex < 0 || outputFileIdColIndex < 0 || rowMappingColIndex < 0) {
-      ui.alert('Error', 'Batch Status sheet has invalid format.', ui.ButtonSet.OK);
-      return;
-    }
+    if (openAIBatchIdColIndex < 0 || batchIdColIndex < 0 || outputFileIdColIndex < 0) return false;
     
-    // Find completed batches that haven't been processed
-    var completedBatches = [];
+    var processed = false;
+    
     for (var i = 1; i < batchData.length; i++) {
-      if (batchData[i][statusColIndex] === 'completed' && batchData[i][outputFileIdColIndex]) {
-        completedBatches.push({
-          rowIndex: i + 1,
-          batchId: batchData[i][batchIdColIndex],
-          outputFileId: batchData[i][outputFileIdColIndex],
-          rowMapping: batchData[i][rowMappingColIndex]
-        });
-      }
-    }
-    
-    if (completedBatches.length === 0) {
-      ui.alert('No Completed Batches', 'There are no completed batches to process.', ui.ButtonSet.OK);
-      return;
-    }
-    
-    // Process each completed batch
-    var totalProcessed = 0;
-    var totalSuccess = 0;
-    var totalFailed = 0;
-    
-    for (var i = 0; i < completedBatches.length; i++) {
-      var batchInfo = completedBatches[i];
-      
-      try {
-        // Download the output file
-        var outputContent = downloadFileFromOpenAI(batchInfo.outputFileId);
-        if (!outputContent) continue;
+      if (batchData[i][openAIBatchIdColIndex] === openAIBatchId) {
+        var batchId = batchData[i][batchIdColIndex];
+        var outputFileId = batchData[i][outputFileIdColIndex];
+        var currentProcessed = processedColIndex >= 0 ? batchData[i][processedColIndex] : "No";
         
-        // Parse the row mapping
-        var rowMap = JSON.parse(batchInfo.rowMapping);
-        
-        // Process the results
-        var results = processOutputFile(outputContent, rowMap, batchInfo.batchId);
-        
-        totalProcessed += results.total;
-        totalSuccess += results.success;
-        totalFailed += results.failed;
-        
-      } catch (e) {
-        Logger.log('Error processing batch: ' + e.toString());
-      }
-    }
-    
-    // Show summary
-    ui.alert('Batch Processing Complete', 
-             `Successfully processed ${totalSuccess} out of ${totalProcessed} requests.\n${totalFailed} requests failed.`, 
-             ui.ButtonSet.OK);
-  }
-  
-  /**
-   * Processes the output file and updates the Data sheet
-   */
-  function processOutputFile(outputContent, rowMap, batchId) {
-    var dataSheet = getSheet('Data');
-    var headers = dataSheet.getRange(1, 1, 1, dataSheet.getLastColumn()).getValues()[0];
-    
-    // Find Status and Batch ID columns
-    var statusColIndex = headers.indexOf("Status");
-    var batchIdColIndex = headers.indexOf("Batch ID");
-    
-    var lines = outputContent.split('\n').filter(line => line.trim()); // Filter out empty lines
-    
-    // Calculate the actual number of requests from the row mapping
-    var totalRequests = Object.keys(rowMap).length;
-    var successfulRequests = 0;
-    var failedRequests = 0;
-    
-    // Track metrics for cost summary
-    var promptMetrics = {};
-    
-    for (var i = 0; i < lines.length; i++) {
-      if (!lines[i].trim()) continue;
-      
-      try {
-        var result = JSON.parse(lines[i]);
-        var customId = result.custom_id;
-        var rowInfo = rowMap[customId];
-        
-        if (!rowInfo) {
-          Logger.log('Warning: No row mapping found for custom_id: ' + customId);
-          continue;
+        // Skip if already processed
+        if (currentProcessed === "Yes") {
+          debugLog(`Batch ${openAIBatchId} has already been processed.`);
+          return true;
         }
         
-        if (result.error) {
-          // Log the error
-          logError(rowInfo.row, `Batch error for ${rowInfo.promptName}: ${result.error.message}`);
-          failedRequests++;
-          continue;
+        if (!outputFileId) {
+          debugLog(`Warning: No output file ID for batch ${openAIBatchId}`);
+          return false;
         }
         
-        var response = result.response;
-        if (response && response.status_code === 200 && response.body) {
-          var responseBody = response.body;
-          var content = responseBody.choices[0].message.content;
-          
-          try {
-            var parsedContent = JSON.parse(content);
-            
-            // Save the response to the Data sheet
-            saveResponseToDataSheet(dataSheet, headers, rowInfo.row - 1, parsedContent, rowInfo.promptName);
-            
-            // Mark the row as processed (status = 2 for batch completed)
-            if (statusColIndex >= 0) {
-              dataSheet.getRange(rowInfo.row, statusColIndex + 1).setValue(2);
-            }
-            
-            // Verify the batch ID matches
-            if (batchIdColIndex >= 0) {
-              var currentBatchId = dataSheet.getRange(rowInfo.row, batchIdColIndex + 1).getValue();
-              if (currentBatchId !== batchId) {
-                Logger.log(`Warning: Batch ID mismatch for row ${rowInfo.row}. Expected: ${batchId}, Found: ${currentBatchId}`);
-              }
-            }
-            
-            // Track usage for cost summary
-            var model = responseBody.model;
-            var inputTokens = responseBody.usage.prompt_tokens;
-            var outputTokens = responseBody.usage.completion_tokens;
-            var totalTokens = responseBody.usage.total_tokens;
-            var cost = calculateCost(model, inputTokens, outputTokens);
-            
-            if (!promptMetrics[rowInfo.promptName]) {
-              promptMetrics[rowInfo.promptName] = {
-                count: 0,
-                inputTokens: 0,
-                outputTokens: 0,
-                totalTokens: 0,
-                cost: 0,
-                model: model,
-                duration: 0 // We don't have individual durations for batch requests
-              };
-            }
-            
-            promptMetrics[rowInfo.promptName].count++;
-            promptMetrics[rowInfo.promptName].inputTokens += inputTokens;
-            promptMetrics[rowInfo.promptName].outputTokens += outputTokens;
-            promptMetrics[rowInfo.promptName].totalTokens += totalTokens;
-            promptMetrics[rowInfo.promptName].cost += cost;
-            
-            successfulRequests++;
-          } catch (e) {
-            Logger.log('Error parsing content: ' + e.toString());
-            logError(rowInfo.row, `Error parsing content for ${rowInfo.promptName}: ${e.toString()}`);
-            failedRequests++;
-          }
-        } else {
-          Logger.log('Invalid response: ' + JSON.stringify(response));
-          logError(rowInfo.row, `Invalid response for ${rowInfo.promptName}`);
-          failedRequests++;
+        var outputContent = downloadFileFromOpenAI(outputFileId);
+        if (!outputContent) {
+          debugLog(`Warning: Could not download output file for batch ${openAIBatchId}`);
+          return false;
         }
-      } catch (e) {
-        Logger.log('Error processing result: ' + e.toString());
-        failedRequests++;
-      }
-    }
-    
-    // Add cost summary entries
-    var startTime = new Date();
-    var endTime = new Date();
-    
-    for (var promptName in promptMetrics) {
-      var metrics = promptMetrics[promptName];
-      addPromptSummary(
-        startTime,
-        endTime,
-        0, // We don't have duration for batch requests
-        promptName + " (Batch)",
-        metrics.count,
-        metrics.inputTokens,
-        metrics.outputTokens,
-        metrics.cost * 0.5 // 50% discount for batch processing
-      );
-    }
-    
-    return {
-      total: totalRequests,
-      success: successfulRequests,
-      failed: failedRequests
-    };
-  }
-  
-  /**
-   * Downloads a file from OpenAI
-   */
-  function downloadFileFromOpenAI(fileId) {
-    var apiKey = getApiKey();
-    
-    var options = {
-      method: 'get',
-      headers: { Authorization: 'Bearer ' + apiKey },
-      muteHttpExceptions: true
-    };
-    
-    var response = UrlFetchApp.fetch(`https://api.openai.com/v1/files/${fileId}/content`, options);
-    return response.getContentText();
-  }
-  
-  /**
-   * Lists all batches
-   */
-  function listAllBatches() {
-    var ui = SpreadsheetApp.getUi();
-    
-    try {
-      var batches = fetchAllBatches();
-      
-      if (batches.length === 0) {
-        ui.alert('No Batches', 'No batch jobs were found.', ui.ButtonSet.OK);
-        return;
-      }
-      
-      // Create a sheet to display the batches
-      var batchListSheet = getSheet('Batch List');
-      batchListSheet.clear();
-      
-      // Add headers
-      batchListSheet.appendRow([
-        "Batch ID", 
-        "Status", 
-        "Created At", 
-        "Total Requests", 
-        "Completed", 
-        "Failed"
-      ]);
-      
-      // Add batch data
-      for (var i = 0; i < batches.length; i++) {
-        var batch = batches[i];
-        var createdDate = new Date(batch.created_at * 1000).toISOString();
         
-        batchListSheet.appendRow([
-          batch.id,
-          batch.status,
-          createdDate,
-          batch.request_counts.total,
-          batch.request_counts.completed,
-          batch.request_counts.failed
-        ]);
+        // Process the results - no row mapping needed
+        var result = processOutputFile(outputContent, null, batchId);
+        
+        // Update the status to "processed" in our sheet
+        if (statusColIndex >= 0) {
+          batchStatusSheet.getRange(i + 1, statusColIndex + 1).setValue("processed");
+        }
+        
+        // Mark as processed
+        if (processedColIndex >= 0) {
+          batchStatusSheet.getRange(i + 1, processedColIndex + 1).setValue("Yes");
+        }
+        
+        debugLog(`Successfully processed batch ${openAIBatchId} with ${result.success} successful requests and ${result.failed} failed requests`);
+        processed = true;
+        break;
       }
-      
-      // Format the sheet
-      batchListSheet.getRange(1, 1, 1, 6).setFontWeight('bold');
-      batchListSheet.autoResizeColumns(1, 6);
-      
-      // Activate the sheet
-      SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(batchListSheet);
-      
-      ui.alert('Batch List', `Found ${batches.length} batches.`, ui.ButtonSet.OK);
-      
-    } catch (e) {
-      Logger.log('Error listing batches: ' + e.toString());
-      ui.alert('Error', 'Failed to list batches: ' + e.toString(), ui.ButtonSet.OK);
     }
+    
+    if (!processed) {
+      debugLog(`Warning: Could not find batch ${openAIBatchId} in Batch Status sheet for processing`);
+    }
+    
+    return processed;
   }
   
   /**
@@ -1179,11 +1336,47 @@ const PRICING_CONFIG_BATCH = {
   }
   
   /**
-   * Creates JSONL content from request objects
+   * Creates a batch job with the given requests
+   * @param {Array} requests - Array of request objects
+   * @returns {Object} The created batch object
+   */
+  function createBatchJob(requests) {
+    var apiKey = getApiKey();
+    
+    // Create the JSONL content
+    var jsonlContent = createJsonlContent(requests);
+    
+    // Estimate JSONL file size
+    var estimatedSizeMB = jsonlContent.length / (1024 * 1024);
+    if (estimatedSizeMB > 200) {
+      throw new Error('The estimated batch file size is ' + estimatedSizeMB.toFixed(2) + 
+                     ' MB, which exceeds the OpenAI limit of 200 MB. Please reduce the ' + 
+                     CONFIG_KEYS.BATCH_SIZE + ' in Config.');
+    }
+    
+    // Upload the file to OpenAI
+    var fileId = uploadFileToOpenAI(jsonlContent);
+    if (!fileId) {
+      throw new Error('Failed to upload batch file to OpenAI.');
+    }
+    
+    // Create the batch
+    var batch = createOpenAIBatch(fileId);
+    if (!batch) {
+      throw new Error('Failed to create batch job.');
+    }
+    
+    return batch;
+  }
+  
+  /**
+   * Creates a JSONL string from an array of request objects
+   * @param {Array} requests - Array of request objects
+   * @returns {string} JSONL content
    */
   function createJsonlContent(requests) {
-    return requests.map(function(req) {
-      return JSON.stringify(req);
+    return requests.map(function(request) {
+      return JSON.stringify(request);
     }).join('\n');
   }
   
@@ -1278,81 +1471,310 @@ const PRICING_CONFIG_BATCH = {
   }
   
   /**
-   * Cancels a batch in OpenAI
+   * Downloads a file from OpenAI
    */
-  function cancelBatch(batchId) {
+  function downloadFileFromOpenAI(fileId) {
     var apiKey = getApiKey();
     
     var options = {
-      method: 'post',
+      method: 'get',
       headers: { Authorization: 'Bearer ' + apiKey },
       muteHttpExceptions: true
     };
     
-    var response = UrlFetchApp.fetch(`https://api.openai.com/v1/batches/${batchId}/cancel`, options);
-    var responseJson = JSON.parse(response.getContentText());
-    
-    if (responseJson.error) {
-      throw new Error('OpenAI API error: ' + responseJson.error.message);
-    }
-    
-    return responseJson;
+    var response = UrlFetchApp.fetch(`https://api.openai.com/v1/files/${fileId}/content`, options);
+    return response.getContentText();
   }
   
   /**
-   * Processes a completed batch
+   * Processes the output file and updates the Data sheet
    */
-  function processCompletedBatch() {
-    processCompletedBatches();
+  function processOutputFile(outputContent, rowMap, batchId) {
+    var dataSheet = getSheet('Data');
+    var headers = dataSheet.getRange(1, 1, 1, dataSheet.getLastColumn()).getValues()[0];
+    
+    // Find Status and Batch ID columns
+    var statusColIndex = headers.indexOf("Status");
+    var batchIdColIndex = headers.indexOf("Batch ID");
+    
+    var lines = outputContent.split('\n').filter(line => line.trim()); // Filter out empty lines
+    
+    // Calculate the total number of requests from the number of lines
+    var totalRequests = lines.length;
+    var successfulRequests = 0;
+    var failedRequests = 0;
+    
+    // Track metrics for cost summary
+    var promptMetrics = {};
+    
+    for (var i = 0; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      
+      try {
+        var result = JSON.parse(lines[i]);
+        var customId = result.custom_id;
+        
+        // Parse the custom_id to extract row and prompt information
+        // Format: row-{rowIndex}-prompt-{promptIndex}-{promptName}
+        var customIdParts = customId.split('-');
+        if (customIdParts.length < 5 || customIdParts[0] !== 'row' || customIdParts[2] !== 'prompt') {
+          debugLog('Warning: Invalid custom_id format: ' + customId);
+          addErrorLog(new Date(), 0, "Invalid Format", "Invalid custom_id format: " + customId, batchId);
+          continue;
+        }
+        
+        var rowNumber = parseInt(customIdParts[1]);
+        var promptIndex = parseInt(customIdParts[3]);
+        
+        // Extract the prompt name (which might contain hyphens)
+        var promptNameEncoded = customIdParts.slice(4).join('-');
+        var promptName = decodeURIComponent(promptNameEncoded);
+        
+        if (isNaN(rowNumber) || isNaN(promptIndex)) {
+          debugLog('Warning: Invalid row or prompt index in custom_id: ' + customId);
+          addErrorLog(new Date(), 0, "Invalid Format", "Invalid row or prompt index in custom_id: " + customId, batchId);
+          continue;
+        }
+        
+        if (result.error) {
+          // Log the error
+          addErrorLog(new Date(), rowNumber, "API Error", `Batch error for ${promptName}: ${result.error.message}`, batchId);
+          failedRequests++;
+          continue;
+        }
+        
+        var response = result.response;
+        if (response && response.status_code === 200 && response.body) {
+          var responseBody = response.body;
+          var content = responseBody.choices[0].message.content;
+          
+          try {
+            var parsedContent = JSON.parse(content);
+            
+            // Save the response to the Data sheet
+            saveResponseToDataSheet(dataSheet, headers, rowNumber - 1, parsedContent, promptName);
+            
+            // Mark the row as processed (status = 2 for batch completed)
+            if (statusColIndex >= 0) {
+              dataSheet.getRange(rowNumber, statusColIndex + 1).setValue(2);
+            }
+            
+            // Set the batch ID if it's not already set
+            if (batchIdColIndex >= 0) {
+              var currentBatchId = dataSheet.getRange(rowNumber, batchIdColIndex + 1).getValue();
+              if (!currentBatchId) {
+                dataSheet.getRange(rowNumber, batchIdColIndex + 1).setValue(batchId);
+              }
+            }
+            
+            // Track usage for cost summary
+            var model = responseBody.model;
+            var inputTokens = responseBody.usage.prompt_tokens;
+            var outputTokens = responseBody.usage.completion_tokens;
+            var totalTokens = responseBody.usage.total_tokens;
+            var cost = calculateCost(model, inputTokens, outputTokens);
+            
+            // Add to execution log with the response content
+            addExecutionLog(
+              new Date(),
+              rowNumber,
+              model,
+              promptName,
+              content, // Include the actual response content
+              inputTokens,
+              outputTokens,
+              totalTokens,
+              cost
+            );
+            
+            if (!promptMetrics[promptName]) {
+              promptMetrics[promptName] = {
+                count: 0,
+                inputTokens: 0,
+                outputTokens: 0,
+                totalTokens: 0,
+                cost: 0,
+                model: model,
+                duration: 0 // We don't have individual durations for batch requests
+              };
+            }
+            
+            promptMetrics[promptName].count++;
+            promptMetrics[promptName].inputTokens += inputTokens;
+            promptMetrics[promptName].outputTokens += outputTokens;
+            promptMetrics[promptName].totalTokens += totalTokens;
+            promptMetrics[promptName].cost += cost;
+            
+            successfulRequests++;
+          } catch (e) {
+            debugLog('Error parsing content: ' + e.toString());
+            addErrorLog(new Date(), rowNumber, "Parse Error", `Error parsing content for ${promptName}: ${e.toString()}`, batchId);
+            failedRequests++;
+          }
+        } else {
+          debugLog('Invalid response: ' + JSON.stringify(response));
+          addErrorLog(new Date(), rowNumber, "Invalid Response", `Invalid response for ${promptName}`, batchId);
+          failedRequests++;
+        }
+      } catch (e) {
+        debugLog('Error processing result: ' + e.toString());
+        addErrorLog(new Date(), 0, "Processing Error", `Error processing batch result: ${e.toString()}`, batchId);
+        failedRequests++;
+      }
+    }
+    
+    // Add cost summary entries
+    var startTime = new Date();
+    var endTime = new Date();
+    
+    for (var promptName in promptMetrics) {
+      var metrics = promptMetrics[promptName];
+      addPromptSummary(
+        startTime,
+        endTime,
+        0, // We don't have duration for batch requests
+        promptName + " (Batch)",
+        metrics.count,
+        metrics.inputTokens,
+        metrics.outputTokens,
+        metrics.cost * 0.5 // 50% discount for batch processing
+      );
+    }
+    
+    return {
+      total: totalRequests,
+      success: successfulRequests,
+      failed: failedRequests
+    };
   }
   
   /**
-   * Cancels the current batch
+   * Shows an alert only if debug mode is enabled, or always for errors
+   * @param {string} title - The alert title
+   * @param {string} message - The alert message
+   * @param {ButtonSet} buttons - The buttons to display
+   * @param {boolean} isError - Whether this is an error message
    */
-  function cancelCurrentBatch() {
-    var ui = SpreadsheetApp.getUi();
-    var batchStatusSheet = getSheet('Batch Status');
-    
-    if (batchStatusSheet.getLastRow() <= 1) {
-      ui.alert('No Batches', 'No batch jobs have been created yet.', ui.ButtonSet.OK);
+  function showDebugAlert(title, message, buttons, isError = false) {
+    // Always show error messages as popups
+    if (isError) {
+      SpreadsheetApp.getUi().alert(title, message, buttons);
+      Logger.log(`ERROR - ${title}: ${message}`);
       return;
     }
     
-    var lastRow = batchStatusSheet.getLastRow();
-    var batchData = batchStatusSheet.getRange(lastRow, 1, 1, 12).getValues()[0];
-    var batchId = batchData[1]; // OpenAI Batch ID is in column 2
-    var status = batchData[2]; // Status is in column 3
-    
-    if (status === 'completed' || status === 'failed' || status === 'expired' || status === 'cancelled') {
-      ui.alert('Batch Already Finished', 
-               `This batch is already in a final state: ${status}. It cannot be cancelled.`, 
-               ui.ButtonSet.OK);
-      return;
+    // For non-error messages, only show/log if debug mode is enabled
+    if (isDebugModeEnabled()) {
+      SpreadsheetApp.getUi().alert(title, message, buttons);
+      Logger.log(`${title}: ${message}`);
     }
-    
-    var response = ui.alert('Confirm Cancellation', 
-                           'Are you sure you want to cancel this batch? This action cannot be undone.', 
-                           ui.ButtonSet.YES_NO);
-                           
-    if (response !== ui.Button.YES) {
-      return;
+    // No logging if debug mode is disabled and it's not an error
+  }
+  
+  /**
+   * Logs a message only if debug mode is enabled
+   * @param {string} message - The message to log
+   */
+  function debugLog(message) {
+    if (isDebugModeEnabled()) {
+      Logger.log(message);
     }
+  }
+  
+  /**
+   * Adds an entry to the Execution Log sheet
+   * @param {Date} timestamp - When the execution occurred
+   * @param {number} row - The row number in the Data sheet
+   * @param {string} model - The model used
+   * @param {string} promptName - The name of the prompt
+   * @param {string} responseContent - The response content received
+   * @param {number} inputTokens - Number of input tokens
+   * @param {number} outputTokens - Number of output tokens
+   * @param {number} totalTokens - Total tokens used
+   * @param {number} cost - The cost in USD
+   */
+  function addExecutionLog(timestamp, row, model, promptName, responseContent, inputTokens, outputTokens, totalTokens, cost) {
+    var logSheet = getSheet('Execution Log');
     
-    try {
-      var result = cancelBatch(batchId);
+    // Add headers if the sheet is empty
+    if (logSheet.getLastRow() === 0) {
+      logSheet.appendRow([
+        "Timestamp",
+        "Row",
+        "Model",
+        "Prompt Sent",
+        "Response Received",
+        "Input Tokens",
+        "Output Tokens",
+        "Total Tokens",
+        "Cost (USD)"
+      ]);
       
-      // Update the status in the sheet
-      batchStatusSheet.getRange(lastRow, 3).setValue(result.status);
-      
-      ui.alert('Batch Cancelled', 
-               `The batch has been cancelled. Status: ${result.status}`, 
-               ui.ButtonSet.OK);
-               
-    } catch (e) {
-      Logger.log('Error cancelling batch: ' + e.toString());
-      ui.alert('Error', 'Failed to cancel batch: ' + e.toString(), ui.ButtonSet.OK);
+      // Format the header row
+      logSheet.getRange(1, 1, 1, 9).setFontWeight('bold');
+      logSheet.setFrozenRows(1);
     }
+    
+    // Add the log entry
+    logSheet.appendRow([
+      timestamp,
+      row,
+      model,
+      promptName,
+      responseContent,
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      cost
+    ]);
+  }
+  
+  /**
+   * Adds an entry to the Error Log sheet
+   * @param {Date} timestamp - When the error occurred
+   * @param {number} row - The row number in the Data sheet
+   * @param {string} errorType - Type of error
+   * @param {string} errorMessage - The error message
+   * @param {string} batchId - The batch ID (if applicable)
+   */
+  function addErrorLog(timestamp, row, errorType, errorMessage, batchId = '') {
+    var errorSheet = getSheet('Error Log');
+    
+    // Add headers if the sheet is empty
+    if (errorSheet.getLastRow() === 0) {
+      errorSheet.appendRow([
+        "Timestamp",
+        "Row",
+        "Error Type",
+        "Error Message",
+        "Batch ID"
+      ]);
+      
+      // Format the header row
+      errorSheet.getRange(1, 1, 1, 5).setFontWeight('bold');
+      errorSheet.setFrozenRows(1);
+    }
+    
+    // Add the error entry
+    errorSheet.appendRow([
+      timestamp,
+      row,
+      errorType,
+      errorMessage,
+      batchId
+    ]);
+  }
+  
+  /**
+   * Logs an error for a specific row
+   */
+  function logError(rowNumber, errorMessage) {
+    addErrorLog(new Date(), rowNumber, "Processing Error", errorMessage);
+    
+    // Also log to console for debugging
+    debugLog(`Error in row ${rowNumber}: ${errorMessage}`);
   }
   
   
   
+
