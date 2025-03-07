@@ -1,11 +1,11 @@
 /*******************************
  * Google Apps Script for OpenAI API Integration
  * Made for you by https://www.zyxware.com
+ * Updates: https://github.com/zyxware/SheetAI
  * Features:
- * - Batch Processing Capability
  * - Executes OpenAI prompts on Google Sheets data
+ * - Batch Processing Capability (supports up to 50,000 requests per batch)
  * - Saves results back to the Data sheet
- * - Logs execution (tokens, costs)
  *********************************/
 
 /**
@@ -74,15 +74,6 @@ function getApiKey() {
 function getDefaultModel() {
   var model = getConfigValue(CONFIG_KEYS.DEFAULT_MODEL);
   return model !== undefined ? model : CONFIG_DEFAULTS.DEFAULT_MODEL;
-}
-
-/**
- * Gets the batch size from the Config sheet or uses the default
- * @returns {number} The batch size
- */
-function getBatchSize() {
-  var size = getConfigValue(CONFIG_KEYS.BATCH_SIZE);
-  return size !== undefined ? size : CONFIG_DEFAULTS.BATCH_SIZE;
 }
 
 /**
