@@ -174,9 +174,9 @@ https://github.com/zyxware/SheetAI
 
 https://github.com/zyxware/SheetAI/issues
 
-## License
+## License and Disclaimer
 
-GPL v2 – Free to use & modify.
+GPL v2 – Free to use & modify. Use it at your own risk. We are not collecting any user data or sending data to external systems other then OpenAI apis. Use the API key generated in your OpenAI account and make sure to revoke it if you are sharing this sheet with others. You can also set budget in OpenAI account to avoid unexpected costs. Google Sheet comes with revisions and the data you put in the document may be available in revisions even if you delete the sheet.
 
 ## Need Help or Commercial Support?
 
