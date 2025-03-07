@@ -337,6 +337,7 @@ function checkAndProcessNextCompletedBatch() {
     var statusColIndex = headers.indexOf("Status");
     var outputFileIdColIndex = headers.indexOf("Output File ID");
     var processedColIndex = headers.indexOf("Processed");
+    var lastCheckedColIndex = headers.indexOf("Last Checked At");
     
     Logger.log("Column indices - Batch ID: " + batchIdColIndex + 
                ", OpenAI Batch ID: " + openAIBatchIdColIndex + 
@@ -363,7 +364,7 @@ function checkAndProcessNextCompletedBatch() {
       return;
     }
     
-    // Get all batches from OpenAI
+    // Get all batches from OpenAI to update status
     Logger.log("Fetching batches from OpenAI");
     var openAIBatches = fetchAllBatches();
     var openAIBatchesMap = {};
@@ -374,10 +375,8 @@ function checkAndProcessNextCompletedBatch() {
     }
     Logger.log("Found " + openAIBatches.length + " batches in OpenAI");
     
-    var batchToProcess = null;
-    var batchRowIndex = -1;
-    
     // First, update the status of all batches
+    var updatedCount = 0;
     for (var i = 1; i < batchData.length; i++) {
       var batchId = batchData[i][batchIdColIndex];
       var openAIBatchId = batchData[i][openAIBatchIdColIndex];
@@ -396,8 +395,8 @@ function checkAndProcessNextCompletedBatch() {
       if (openAIBatchId && openAIBatchesMap[openAIBatchId]) {
         var openAIBatch = openAIBatchesMap[openAIBatchId];
         
-        // If the status has changed
-        if (openAIBatch.status !== currentStatus) {
+        // If the status has changed or we need to update
+        if (openAIBatch.status !== currentStatus || !batchData[i][outputFileIdColIndex]) {
           Logger.log("Status changed for batch " + batchId + " from " + currentStatus + " to " + openAIBatch.status);
           
           // Get the full batch details
@@ -413,22 +412,36 @@ function checkAndProcessNextCompletedBatch() {
             Logger.log("Updated output file ID for batch " + batchId + ": " + fullBatchDetails.output_file_id);
           }
           
-          // If the batch is completed in OpenAI but not in our sheet, this is the one to process
-          if (fullBatchDetails.status === "completed" && currentProcessed === "No") {
-            batchToProcess = fullBatchDetails;
-            batchRowIndex = i;
-            Logger.log("Found completed batch to process: " + batchId);
-            break;
-          }
-        } else if (currentStatus === "completed" && currentProcessed === "No") {
-          // If the batch is already marked as completed but not processed, process it
-          batchToProcess = openAIBatch;
-          batchRowIndex = i;
-          Logger.log("Found already completed batch to process: " + batchId);
-          break;
+          updatedCount++;
         }
-      } else {
-        Logger.log("Batch " + batchId + " not found in OpenAI or has no OpenAI ID");
+      }
+    }
+    
+    Logger.log("Updated " + updatedCount + " batches");
+    
+    // Now find a completed batch to process
+    var batchToProcess = null;
+    var batchRowIndex = -1;
+    
+    // Refresh the data after updates
+    batchData = batchStatusSheet.getDataRange().getValues();
+    
+    for (var i = 1; i < batchData.length; i++) {
+      var batchId = batchData[i][batchIdColIndex];
+      var openAIBatchId = batchData[i][openAIBatchIdColIndex];
+      var currentStatus = batchData[i][statusColIndex];
+      var currentProcessed = batchData[i][processedColIndex] || "No";
+      var outputFileId = batchData[i][outputFileIdColIndex];
+      
+      // Only process completed batches that have an output file and aren't already processed
+      if (currentStatus === "completed" && outputFileId && currentProcessed === "No") {
+        batchToProcess = {
+          id: openAIBatchId,
+          output_file_id: outputFileId
+        };
+        batchRowIndex = i;
+        Logger.log("Found completed batch to process: " + batchId);
+        break;
       }
     }
     
@@ -454,7 +467,7 @@ function checkAndProcessNextCompletedBatch() {
     } else {
       Logger.log("No completed batches found to process");
       showDebugAlert('No Batches to Process', 
-                   'No completed batches were found that need processing.', 
+                   'No completed batches were found that need processing. Batches may still be in progress at OpenAI.', 
                    ui.ButtonSet.OK);
     }
   } catch (e) {
@@ -520,10 +533,6 @@ function getActivePrompts() {
   return activePrompts;
 }
   
-function isDebugMode() {
-  return getSheet('Config').getRange('B3').getValue().toLowerCase() === "on";
-}
-  
 function getBatchSize() {
   var size = getConfigValue(CONFIG_KEYS.BATCH_SIZE);
   return size !== undefined ? size : CONFIG_DEFAULTS.BATCH_SIZE;
@@ -568,148 +577,264 @@ function logError(rowIndex, errorMessage) {
   
 /* ======== Main Function to Run Prompts ======== */
 function runPrompts(maxRows) {
-  // Record start time for this execution
-  var startTime = new Date();
-  
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var dataSheet = getSheet('Data');
+  var ui = SpreadsheetApp.getUi();
   var apiKey = getApiKey();
-  var debugMode = isDebugMode();
-  var lastRow = dataSheet.getLastRow();
-  var dataRange = dataSheet.getRange(1, 1, lastRow, dataSheet.getLastColumn()).getValues();
-  var headers = dataRange[0];
-
-  var statusColIndex = headers.indexOf("Status");
-  if (statusColIndex < 0) {
-    statusColIndex = headers.length;
-    dataSheet.getRange(1, statusColIndex + 1).setValue("Status");
-    headers.push("Status");
+  
+  if (!apiKey) {
+    showDebugAlert('Error', 'API key is missing. Please add it to the Config sheet.', ui.ButtonSet.OK, true);
+    return;
   }
-
-  // Ensure Batch ID column exists
-  var batchIdColIndex = headers.indexOf("Batch ID");
-  if (batchIdColIndex < 0) {
-    batchIdColIndex = headers.length;
-    dataSheet.getRange(1, batchIdColIndex + 1).setValue("Batch ID");
-    headers.push("Batch ID");
-  }
-
-  // Get only active prompts instead of all prompts
-  var prompts = getActivePrompts();
-  var rowsToProcess = Math.min(lastRow, 1 + maxRows);
-
-  // Track metrics per prompt type
-  var promptMetrics = {};
-  var rowsExecuted = 0;
-
-  for (var rowIndex = 1; rowIndex < rowsToProcess; rowIndex++) {
-    if (dataRange[rowIndex][statusColIndex] > 0) continue;
+  
+  try {
+    // Record start time for this execution
+    var startTime = new Date();
+    var debugMode = isDebugModeEnabled();
     
-    rowsExecuted++;
+    // Get active prompts from the Prompts sheet
+    var promptsSheet = getSheet('Prompts');
+    if (!promptsSheet) {
+      showDebugAlert('Error', 'Prompts sheet not found.', ui.ButtonSet.OK, true);
+      return;
+    }
     
-    // Set Batch ID to 0 for non-batch processing
-    dataSheet.getRange(rowIndex + 1, batchIdColIndex + 1).setValue("0");
+    var promptsData = promptsSheet.getDataRange().getValues();
+    var promptsHeaders = promptsData[0];
     
-    for (var p of prompts) {
-      var promptName = p[0];
-      var promptText = p[1];
-      var model = (p[2] || getDefaultModel()).toLowerCase();
-
-      var finalPrompt = replacePlaceholders(promptText, headers, dataRange[rowIndex]);
-
-      try {
-        // Record start time for this API call
-        var apiCallStartTime = new Date();
-        
-        var apiResponse = callOpenAI(apiKey, model, finalPrompt);
-        
-        // Record end time and calculate duration for this API call
-        var apiCallEndTime = new Date();
-        var apiCallDuration = (apiCallEndTime - apiCallStartTime) / 1000; // Duration in seconds
-        
-        var responseText = apiResponse.text;
-        var parsedResponse = apiResponse.parsedJson;
-        var inputTokens = apiResponse.inputTokens;
-        var outputTokens = apiResponse.outputTokens;
-        var totalTokens = apiResponse.totalTokens;
-        var cost = calculateCost(model, inputTokens, outputTokens);
-        
-        // Update per-prompt metrics
-        if (!promptMetrics[promptName]) {
-          promptMetrics[promptName] = {
-            count: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            totalTokens: 0,
-            cost: 0,
-            model: model,
-            duration: 0 // Add duration tracking
-          };
-        }
-        promptMetrics[promptName].count++;
-        promptMetrics[promptName].inputTokens += inputTokens;
-        promptMetrics[promptName].outputTokens += outputTokens;
-        promptMetrics[promptName].totalTokens += totalTokens;
-        promptMetrics[promptName].cost += cost;
-        promptMetrics[promptName].duration += apiCallDuration; // Add this API call's duration to the total
-
-        // Save response back to the Data sheet
-        saveResponseToDataSheet(dataSheet, headers, rowIndex, parsedResponse, promptName);
-
-        if (debugMode) {
-          logExecution(rowIndex + 1, finalPrompt, responseText, inputTokens, outputTokens, totalTokens, model);
-        }
-
-      } catch (e) {
-        logError(rowIndex + 1, e.toString());
+    // Find column indices in the Prompts sheet
+    var promptNameIndex = -1;
+    var promptTextIndex = -1;
+    var modelIndex = -1;
+    var activeIndex = -1;
+    
+    for (var i = 0; i < promptsHeaders.length; i++) {
+      var header = promptsHeaders[i];
+      if (header === null || header === undefined) continue;
+      
+      var headerStr = String(header); // Safely convert to string
+      
+      if (headerStr === 'Prompt Name') promptNameIndex = i;
+      if (headerStr === 'Prompt Text') promptTextIndex = i;
+      if (headerStr === 'Model') modelIndex = i;
+      if (headerStr === 'Active') activeIndex = i;
+    }
+    
+    if (promptNameIndex < 0 || promptTextIndex < 0) {
+      showDebugAlert('Error', 'Prompts sheet is missing required columns.', ui.ButtonSet.OK, true);
+      return;
+    }
+    
+    // Get active prompts
+    var activePrompts = [];
+    for (var i = 1; i < promptsData.length; i++) {
+      var isActive = activeIndex >= 0 ? 
+                    (promptsData[i][activeIndex] === 1 || 
+                     promptsData[i][activeIndex] === '1' || 
+                     promptsData[i][activeIndex] === true || 
+                     promptsData[i][activeIndex] === 'TRUE' || 
+                     promptsData[i][activeIndex] === 'Yes' || 
+                     promptsData[i][activeIndex] === 'true') : true;
+      
+      if (isActive) {
+        activePrompts.push({
+          name: promptsData[i][promptNameIndex],
+          text: promptsData[i][promptTextIndex],
+          model: modelIndex >= 0 ? promptsData[i][modelIndex] : getDefaultModel()
+        });
       }
     }
-
-    // When processing is complete, set status to 1 for non-batch processing
-    dataSheet.getRange(rowIndex + 1, statusColIndex + 1).setValue(1);
-  }
-
-  // Record end time and calculate duration
-  var endTime = new Date();
-  var executionDuration = (endTime - startTime) / 1000; // Duration in seconds
-
-  // Add summary entries for each prompt
-  if (Object.keys(promptMetrics).length > 0) {
-    for (var promptName in promptMetrics) {
-      var metrics = promptMetrics[promptName];
-      addPromptSummary(
-        startTime, 
-        endTime, 
-        metrics.duration, // Use the accumulated duration for this prompt
-        promptName, 
-        rowsExecuted, 
-        metrics.inputTokens, 
-        metrics.outputTokens, 
-        metrics.cost
-      );
+    
+    if (activePrompts.length === 0) {
+      showDebugAlert('No Active Prompts', 'No active prompts found in the Prompts sheet.', ui.ButtonSet.OK);
+      return;
     }
     
-    // Calculate totals for toast notification
-    var totalPromptsExecuted = 0;
-    var totalInputTokens = 0;
-    var totalOutputTokens = 0;
-    var totalCost = 0;
-    var totalDuration = 0;
-    
-    for (var promptName in promptMetrics) {
-      totalPromptsExecuted += promptMetrics[promptName].count;
-      totalInputTokens += promptMetrics[promptName].inputTokens;
-      totalOutputTokens += promptMetrics[promptName].outputTokens;
-      totalCost += promptMetrics[promptName].cost;
-      totalDuration += promptMetrics[promptName].duration;
+    // Get data from the Data sheet
+    var dataSheet = getSheet('Data');
+    if (!dataSheet) {
+      showDebugAlert('Error', 'Data sheet not found.', ui.ButtonSet.OK, true);
+      return;
     }
     
-    // Show a toast notification with the summary
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      `Executed ${totalPromptsExecuted} prompts\nTotal tokens: ${totalInputTokens + totalOutputTokens}\nTotal cost: $${totalCost.toFixed(4)}\nTotal API time: ${totalDuration.toFixed(1)} seconds\nTotal execution time: ${executionDuration.toFixed(1)} seconds`,
-      'Execution Complete',
-      30
-    );
+    var dataRange = dataSheet.getDataRange().getValues();
+    var headers = dataRange[0];
+    
+    // Find Status column or add it if it doesn't exist
+    var statusColIndex = -1;
+    for (var i = 0; i < headers.length; i++) {
+      var header = headers[i];
+      if (header === null || header === undefined) continue;
+      
+      var headerStr = String(header); // Safely convert to string
+      if (headerStr === 'Status') {
+        statusColIndex = i;
+        break;
+      }
+    }
+    
+    if (statusColIndex < 0) {
+      statusColIndex = headers.length;
+      dataSheet.getRange(1, statusColIndex + 1).setValue('Status');
+      headers.push('Status');
+    }
+    
+    // Find rows that need processing (status is 0 or empty)
+    var rowsToProcess = [];
+    for (var i = 1; i < dataRange.length && rowsToProcess.length < maxRows; i++) {
+      var status = dataRange[i][statusColIndex];
+      if (status === 0 || status === '' || status === null || status === undefined) {
+        rowsToProcess.push(i);
+      }
+    }
+    
+    if (rowsToProcess.length === 0) {
+      showDebugAlert('No Data', 'No rows found that need processing.', ui.ButtonSet.OK);
+      return;
+    }
+    
+    // Track metrics
+    var promptMetrics = {};
+    var totalProcessed = 0;
+    var totalErrors = 0;
+    
+    // Process each row
+    for (var i = 0; i < rowsToProcess.length; i++) {
+      var rowIndex = rowsToProcess[i];
+      var rowNumber = rowIndex + 1; // +1 for the actual row number in the sheet
+      
+      try {
+        // Mark the row as in progress (status = 1)
+        dataSheet.getRange(rowNumber, statusColIndex + 1).setValue(1);
+        
+        // Process each active prompt for this row
+        for (var j = 0; j < activePrompts.length; j++) {
+          var prompt = activePrompts[j];
+          var promptName = prompt.name;
+          var promptTemplate = prompt.text;
+          var model = prompt.model || getDefaultModel();
+          
+          try {
+            // Replace placeholders in the prompt template
+            var promptText = promptTemplate;
+            
+            // Find all placeholders in the format {{Column Name}}
+            var placeholders = promptTemplate.match(/\{\{([^}]+)\}\}/g) || [];
+            
+            for (var k = 0; k < placeholders.length; k++) {
+              var placeholder = placeholders[k];
+              var columnName = placeholder.substring(2, placeholder.length - 2).trim();
+              
+              // Find the column index
+              var columnIndex = -1;
+              for (var l = 0; l < headers.length; l++) {
+                var header = headers[l];
+                if (header === null || header === undefined) continue;
+                
+                var headerStr = String(header); // Safely convert to string
+                if (headerStr === columnName) {
+                  columnIndex = l;
+                  break;
+                }
+              }
+              
+              if (columnIndex >= 0) {
+                var cellValue = dataRange[rowIndex][columnIndex] || '';
+                promptText = promptText.replace(placeholder, cellValue);
+              }
+            }
+            
+            // Call the OpenAI API
+            var apiCallStartTime = new Date();
+            var response = callOpenAI(apiKey, model, promptText);
+            var apiCallEndTime = new Date();
+            var apiCallDuration = (apiCallEndTime - apiCallStartTime) / 1000; // Duration in seconds
+            
+            var responseText = response.text;
+            var parsedResponse = response.parsedJson;
+            var inputTokens = response.inputTokens;
+            var outputTokens = response.outputTokens;
+            var totalTokens = response.totalTokens;
+            var cost = calculateCost(model, inputTokens, outputTokens, true);
+            
+            // Update metrics
+            if (!promptMetrics[promptName]) {
+              promptMetrics[promptName] = {
+                count: 0,
+                inputTokens: 0,
+                outputTokens: 0,
+                totalTokens: 0,
+                cost: 0,
+                model: model,
+                duration: 0
+              };
+            }
+            
+            promptMetrics[promptName].count++;
+            promptMetrics[promptName].inputTokens += inputTokens;
+            promptMetrics[promptName].outputTokens += outputTokens;
+            promptMetrics[promptName].totalTokens += totalTokens;
+            promptMetrics[promptName].cost += cost;
+            promptMetrics[promptName].duration += apiCallDuration;
+            
+            // Save response to the Data sheet
+            saveResponseToDataSheet(dataSheet, headers, rowIndex, parsedResponse, promptName);
+            
+            // Log execution
+            if (debugMode) {
+              addExecutionLog(
+                new Date(),
+                rowNumber,
+                model,
+                promptName,
+                responseText,
+                inputTokens,
+                outputTokens,
+                totalTokens,
+                cost
+              );
+            }
+            
+            totalProcessed++;
+          } catch (e) {
+            logError(rowNumber + 1, `Error processing ${promptName}: ${e.toString()}`);
+            totalErrors++;
+          }
+        }
+        
+        // Mark the row as completed (status = 1 for non batch mode)
+        dataSheet.getRange(rowNumber, statusColIndex + 1).setValue(1);
+      } catch (e) {
+        logError(rowNumber + 1, e.toString());
+        totalErrors++;
+      }
+    }
+    
+    // Record end time and calculate duration
+    var endTime = new Date();
+    var executionDuration = (endTime - startTime) / 1000; // Duration in seconds
+    
+    // Add summary entries for each prompt
+    if (Object.keys(promptMetrics).length > 0) {
+      for (var promptName in promptMetrics) {
+        var metrics = promptMetrics[promptName];
+        addPromptSummary(
+          startTime,
+          endTime,
+          metrics.duration,
+          promptName,
+          metrics.count,
+          metrics.inputTokens,
+          metrics.outputTokens,
+          metrics.cost
+        );
+      }
+    }
+    
+    showDebugAlert('Processing Complete', 
+                 `Processed ${totalProcessed} prompts with ${totalErrors} errors.`, 
+                 ui.ButtonSet.OK);
+  } catch (e) {
+    debugLog('Error running prompts: ' + e.toString());
+    showDebugAlert('Error', 'Failed to run prompts: ' + e.toString(), ui.ButtonSet.OK, true);
   }
 }
   
@@ -840,7 +965,7 @@ function callOpenAI(apiKey, model, prompt) {
 }
   
 /* ======== Placeholder Replacement Function ======== */
-function replacePlaceholders(prompt, headers, rowData) {
+function replaceVariables(prompt, headers, rowData) {
   var finalPrompt = prompt;
   for (var colIndex = 0; colIndex < headers.length; colIndex++) {
     var placeholder = '{{' + headers[colIndex].trim() + '}}';
@@ -851,14 +976,32 @@ function replacePlaceholders(prompt, headers, rowData) {
 }
   
 /* ======== Calculate OpenAI API Cost ======== */
-function calculateCost(model, inputTokens, outputTokens) {
-  var pricing = getPricing(model);
-  var inputRate = (pricing.input_per_1m || 0) / 1000000; // Convert per 1M rate to per token
-  var outputRate = (pricing.output_per_1m || 0) / 1000000;
-
-  var inputCost = inputTokens * inputRate;
-  var outputCost = outputTokens * outputRate;
-
+function calculateCost(model, inputTokens, outputTokens, isBatch = false) {
+  // Normalize model name to lowercase
+  var modelLower = model.toLowerCase();
+  
+  // Get pricing configuration based on whether this is a batch request
+  var pricingConfig = isBatch ? PRICING_CONFIG_BATCH : PRICING_CONFIG;
+  
+  // Get pricing for the model, or use default if not found
+  var pricing = pricingConfig[modelLower];
+  if (!pricing) {
+    // If model not found in batch pricing but this is a batch, try standard pricing
+    if (isBatch && PRICING_CONFIG[modelLower]) {
+      pricing = {
+        input_per_1m: PRICING_CONFIG[modelLower].input_per_1m / 2,
+        output_per_1m: PRICING_CONFIG[modelLower].output_per_1m / 2
+      };
+    } else {
+      // Default to gpt-4o-mini pricing if model not found
+      pricing = pricingConfig["gpt-4o-mini"];
+    }
+  }
+  
+  // Calculate cost
+  var inputCost = (inputTokens / 1000000) * pricing.input_per_1m;
+  var outputCost = (outputTokens / 1000000) * pricing.output_per_1m;
+  
   return inputCost + outputCost;
 }
   
@@ -1067,7 +1210,7 @@ function prepareBatchDataRange(startRow, endRow) {
       var promptText = prompts[p][1];
       var model = (prompts[p][2] || getDefaultModel()).toLowerCase();
       
-      var finalPrompt = replacePlaceholders(promptText, headers, dataRange[rowIndex]);
+      var finalPrompt = replaceVariables(promptText, headers, dataRange[rowIndex]);
       
       // Create a unique custom_id that encodes all necessary information
       // Format: row-{rowIndex}-prompt-{promptIndex}-{promptName}
@@ -1540,7 +1683,7 @@ function processOutputFile(outputContent, rowMap, batchId) {
           var inputTokens = responseBody.usage.prompt_tokens;
           var outputTokens = responseBody.usage.completion_tokens;
           var totalTokens = responseBody.usage.total_tokens;
-          var cost = calculateCost(model, inputTokens, outputTokens);
+          var cost = calculateCost(model, inputTokens, outputTokens, true);
           
           Logger.log("Successfully processed row " + rowNumber + " with model " + model);
           
@@ -1607,7 +1750,7 @@ function processOutputFile(outputContent, rowMap, batchId) {
       metrics.count,
       metrics.inputTokens,
       metrics.outputTokens,
-      metrics.cost * 0.5 // 50% discount for batch processing
+      metrics.cost
     );
   }
   
@@ -1767,12 +1910,3 @@ function onEditConfig(e) {
     Logger.log(`Config value changed for key "${key}": ${value}`);
   }
 }
-  
-  
-  
-  
-  
-  
-  
-  
-
