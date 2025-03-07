@@ -9,9 +9,9 @@
 ## Features
 
 - **AI-Powered Data Processing** – Uses OpenAI to classify and enrich spreadsheet data.
+- **Batch Processing** - Supports batch processing of up to 50,000 requests per batch for efficient handling of large datasets.
 - **Automated Column Management** – Dynamically creates columns for extracted data.
-- **Cost Tracking** – Logs token usage and calculates OpenAI API costs.
-- **Debugging & Logging** – Execution logs for tracking inputs, outputs, and errors.
+- **Cost Tracking** – Logs token usage (including cached tokens) and calculates OpenAI API costs accurately.
 - **Customizable Prompts** – Define prompts and AI models per task.
 
 ## Use Cases
@@ -48,7 +48,13 @@ The template has all the structure ready, the data sheet is where you put your d
 3. Configure the following values:
    - **A1**: `API_KEY`  → **B1**: *(Your OpenAI API Key)*
    - **A2**: `DEFAULT_MODEL` → **B2**: `gpt-4o-mini` *(or another model)*
-   - **A3**: `DEBUG_MODE` → **B3**: `on` *(Set to **``** to enable logging, **`off`** to disable)*
+   - **A3**: `DEBUG` → **B3**: `0` *(Set to **`1`** to enable logging, **`0`** to disable)*
+   - **A4**: `BATCH_SIZE` → **B4**: `2000` *(Number of rows to process in each batch)*
+   - **A5**: `TEMPERATURE` → **B5**: `0` *(Controls randomness: 0 = deterministic, 1 = creative)*
+   - **A6**: `MAX_TOKENS` → **B6**: `256` *(Maximum tokens in response)*
+   - **A7**: `SEED` → **B7**: `101` *(Seed for reproducible results)*
+
+Checkout OpenAI documentation for more details on the parameters: https://platform.openai.com/docs/api-reference/completions/create
 
 ### **Step 3: Define Prompts**
 
@@ -74,14 +80,20 @@ SheetAI will replace `{{Company Description}}` and `{{Industry}}` with the actua
 
 If column names contain spaces, they must be written exactly as they appear in the headers of the **Data** sheet.
 
-When writing prompts, make sure the column names match exactly as they appear in the **Data** sheet. If the column name contains spaces, ensure they are written correctly within `{{ }}` in the prompt.
-
 1. Open the **Prompts** sheet.
 2. The first row should have these headers:
    - **A1**: `Prompt Name`
    - **B1**: `Prompt Text`
-   - **C1**: `Model` *(Optional: Defaults to **``** if empty)*
+   - **C1**: `Model` *(Optional: Defaults to config value if empty)*
+   - **D1**: `Active` *(Set to 1 to enable, 0 to disable)*
+   - **E1**: `Temperature` *(Optional: Defaults to config value if empty)*
+   - **F1**: `Max Tokens` *(Optional: Defaults to config value if empty)*
+
 3. Enter classification or processing prompts in the rows below.
+
+It is posssible to use multiple prompts in the same sheet, just make sure the column names match exactly as they appear in the **Data** sheet. The system will run all the active prompts and add all the results in the new columns.
+
+You should mention the keys in the response that you want to extract in the prompt, the system will add the results in the new columns.
 
 Example:
 
@@ -93,6 +105,7 @@ Return only valid JSON with the following keys:
  Type: B2B or B2C
  AI Services: Yes or No based on whether the company has AI-related services.
 ```
+In this case, the openai will return a json with the keys `Type` and `AI Services`. and the system will add the results in the new columns.
 
 ### **Step 4: Prepare Data Sheet**
 
@@ -102,6 +115,13 @@ Return only valid JSON with the following keys:
 ### **Step 5: Run SheetAI**
 
 All you need to do is create prompts, use the columns you want to include in the prompt as tokens, and click **OpenAI Tools** -> **Run for All Rows**. Wait for the processing to complete and view the results in newly created columns.
+
+You should always run `Run for First 10 Rows` first to test and optimize your prompt.
+
+For large datasets, you can use the batch processing feature:
+1. Click **OpenAI Tools** -> **Create Batch**
+2. Once the batch is created, click **OpenAI Tools** -> **Check Batch Status** to monitor progress
+3. When the batch is complete, click **OpenAI Tools** -> **Check and Process Batch** to process the results
 
 As this script is not yet verified by Google, you should be asked to authorize the script. You should follow the steps:
 ![Permission to access the AppScript](https://raw.githubusercontent.com/zyxware/SheetAI/refs/heads/main/doc-assets/Permission%20to%20the%20AppScript.png)
@@ -118,7 +138,8 @@ We are not capturing any user data or sending data to external systems, the scri
 
 - **Execution Log**: Logs prompts sent and responses received.
 - **Error Log**: Captures any issues encountered.
-- **Cost Summary**: Tracks the cost incured in execution.
+- **Cost Summary**: Tracks token usage (including cached tokens) and costs incurred in execution.
+- **Batch Status**: Monitors the status of batch processing jobs.
 
 ## Troubleshooting
 
@@ -128,18 +149,19 @@ We are not capturing any user data or sending data to external systems, the scri
 | --------------------- | ------------------------------------- | -------------------------------------------------- |
 | Data not writing back | Columns missing or invalid JSON       | Check prompts, Ensure correct column names & valid JSON responses |
 | OpenAI API Error      | Invalid API key or quota exceeded     | Verify API key & OpenAI account limits             |
-
-## Future Improvements
-
-- Support for **batch API processing**, which would allow processing multiple rows in parallel, reducing execution time and improving efficiency for large datasets..
+| Batch processing fails| File size too large or timeout        | Reduce batch size in Config sheet                  |
 
 ## Support
 
-This application was developed as an internal tool and we would continue to improve and optimize this for as long as we use it. If however you would like us to customize this orbuild a similar or related system to automate your tasks with AI, we would be available for commercial support.
+This application was developed as an internal tool and we would continue to improve and optimize this for as long as we use it. If however you would like us to customize this or build a similar or related system to automate your tasks with AI, we would be available for commercial support.
 
 ## About Us
 
-We are a software development company. We help organizations transforms their digital operations. We love Free Software and try to contribute to it both through direct code contributions as well as through community level promotional activities. You can see more about us at https://www.zyxware.com
+Zyxware Technologies enables brands to define and execute the next steps in their digital transformation journey; a journey towards rich, personalised experiences for their stakeholders. Zyxware assures sustainable results for businesses on the twin engines of privacy centered data strategy and digital services focused on scalability and adaptiveness.
+
+Headquartered in India, with offices in the USA & Australia - Zyxware has a team with competencies in Business, Engineering, and Experience, enabling brands to achieve digital agility and leadership in their categories since 2006.
+
+We specialize in transforming digital operations with AI and Low-Code/No-Code automation. As advocates for Free Software, we contribute through code and community initiatives. Learn more at https://www.zyxware.com 
 
 ## Contact
 https://www.zyxware.com/contact-us
