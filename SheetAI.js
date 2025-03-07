@@ -165,7 +165,7 @@ function createBatchWithConfigLimit() {
   // Check if a batch is already being created
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) {
-    showDebugAlert('Batch Creation in Progress', 
+    showAlert('Batch Creation in Progress', 
                   'A batch is already being created. Please wait until it completes.', 
                   SpreadsheetApp.getUi().ButtonSet.OK);
     return;
@@ -189,7 +189,7 @@ function checkBatchStatus() {
     // First check our local Batch Status sheet
     var batchStatusSheet = getSheet('Batch Status');
     if (batchStatusSheet.getLastRow() <= 1) {
-      showDebugAlert('No Batches', 'No batch jobs were found in the Batch Status sheet.', ui.ButtonSet.OK);
+      showAlert('No Batches', 'No batch jobs were found in the Batch Status sheet.', ui.ButtonSet.OK);
       return;
     }
     
@@ -223,7 +223,7 @@ function checkBatchStatus() {
     }
     
     if (openAIBatchIdColIndex < 0 || statusColIndex < 0) {
-      showDebugAlert('Error', 'Batch Status sheet is missing required columns.', ui.ButtonSet.OK, true);
+      showAlert('Error', 'Batch Status sheet is missing required columns.', ui.ButtonSet.OK, true);
       return;
     }
     
@@ -287,9 +287,9 @@ function checkBatchStatus() {
     }
     
     if (updatedCount > 0) {
-      showDebugAlert('Batch Status Updated', `Updated status for ${updatedCount} batches.`, ui.ButtonSet.OK);
+      showAlert('Batch Status Updated', `Updated status for ${updatedCount} batches.`, ui.ButtonSet.OK);
     } else {
-      showDebugAlert('No Updates', 'No batch status updates were needed.', ui.ButtonSet.OK);
+      showAlert('No Updates', 'No batch status updates were needed.', ui.ButtonSet.OK);
     }
     
     // Activate the Batch Status sheet
@@ -297,7 +297,7 @@ function checkBatchStatus() {
     
   } catch (e) {
     debugLog('Error checking batch status: ' + e.toString());
-    showDebugAlert('Error', 'Failed to check batch status: ' + e.toString(), ui.ButtonSet.OK, true);
+    showAlert('Error', 'Failed to check batch status: ' + e.toString(), ui.ButtonSet.OK, true);
   }
 }
   
@@ -307,7 +307,7 @@ function checkAndProcessNextCompletedBatch() {
   // Check if a batch is already being processed
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) {
-    showDebugAlert('Batch Processing in Progress', 
+    showAlert('Batch Processing in Progress', 
                   'A batch is already being checked or processed. Please wait until it completes.', 
                   SpreadsheetApp.getUi().ButtonSet.OK);
     return;
@@ -323,7 +323,7 @@ function checkAndProcessNextCompletedBatch() {
     var batchStatusSheet = getSheet('Batch Status');
     if (batchStatusSheet.getLastRow() <= 1) {
       Logger.log("No batches found in Batch Status sheet");
-      showDebugAlert('No Batches', 'No batch jobs were found in the Batch Status sheet.', ui.ButtonSet.OK);
+      showAlert('No Batches', 'No batch jobs were found in the Batch Status sheet.', ui.ButtonSet.OK);
       return;
     }
     
@@ -360,7 +360,7 @@ function checkAndProcessNextCompletedBatch() {
     
     if (openAIBatchIdColIndex < 0 || statusColIndex < 0) {
       Logger.log("Missing required columns in Batch Status sheet");
-      showDebugAlert('Error', 'Batch Status sheet is missing required columns.', ui.ButtonSet.OK, true);
+      showAlert('Error', 'Batch Status sheet is missing required columns.', ui.ButtonSet.OK, true);
       return;
     }
     
@@ -456,23 +456,23 @@ function checkAndProcessNextCompletedBatch() {
       var processed = processBatchById(batchId, openAIBatchId);
       
       if (processed) {
-        showDebugAlert('Batch Processed', 
+        showAlert('Batch Processed', 
                      `Successfully processed batch ${batchId}.\n\nOpenAI Batch ID: ${openAIBatchId}`, 
                      ui.ButtonSet.OK);
       } else {
-        showDebugAlert('Processing Failed', 
+        showAlert('Processing Failed', 
                      `Failed to process batch ${batchId}.\n\nOpenAI Batch ID: ${openAIBatchId}\n\nCheck the Error Log for details.`, 
                      ui.ButtonSet.OK, true);
       }
     } else {
       Logger.log("No completed batches found to process");
-      showDebugAlert('No Batches to Process', 
+      showAlert('No Batches to Process', 
                    'No completed batches were found that need processing. Batches may still be in progress at OpenAI.', 
                    ui.ButtonSet.OK);
     }
   } catch (e) {
     Logger.log("Error in checkAndProcessNextCompletedBatch: " + e.toString());
-    showDebugAlert('Error', 'Failed to check or process batches: ' + e.toString(), SpreadsheetApp.getUi().ButtonSet.OK, true);
+    showAlert('Error', 'Failed to check or process batches: ' + e.toString(), SpreadsheetApp.getUi().ButtonSet.OK, true);
   } finally {
     lock.releaseLock();
   }
@@ -492,7 +492,7 @@ function getDefaultModel() {
   
 /**
  * Gets only the active prompts from the Prompts sheet
- * @return {Array} Array of active prompts
+ * @return {Array} Array of active prompts with name, text, and model properties
  */
 function getActivePrompts() {
   var promptsSheet = getSheet('Prompts');
@@ -504,7 +504,16 @@ function getActivePrompts() {
   }
   
   var headers = promptsData[0];
+  var promptNameIndex = headers.indexOf("Prompt Name");
+  var promptTextIndex = headers.indexOf("Prompt Text");
+  var modelIndex = headers.indexOf("Model");
   var activeColIndex = headers.indexOf("Active");
+  
+  // If required columns don't exist, return empty array
+  if (promptNameIndex < 0 || promptTextIndex < 0) {
+    debugLog("Prompts sheet is missing required columns");
+    return [];
+  }
   
   // If Active column doesn't exist, add it
   if (activeColIndex < 0) {
@@ -526,7 +535,11 @@ function getActivePrompts() {
   var activePrompts = [];
   for (var i = 1; i < promptsData.length; i++) {
     if (promptsData[i][activeColIndex] === 1) {
-      activePrompts.push(promptsData[i]);
+      activePrompts.push({
+        name: promptsData[i][promptNameIndex],
+        text: promptsData[i][promptTextIndex],
+        model: modelIndex >= 0 ? promptsData[i][modelIndex] : getDefaultModel()
+      });
     }
   }
   
@@ -548,31 +561,123 @@ function getSheet(sheetName) {
   return sheet || ss.insertSheet(sheetName);
 }
   
-/* ======== Logging Functions ======== */
+/* ======== Alert and Logging Functions ======== */
+
+/**
+ * Shows an alert popup to the user
+ * @param {string} title - The alert title
+ * @param {string} message - The alert message
+ * @param {ButtonSet} buttons - The buttons to display (e.g., ui.ButtonSet.OK)
+ */
+function showAlert(title, message, buttons) {
+  SpreadsheetApp.getUi().alert(title, message, buttons);
+  // Also log the message for reference
+  Logger.log(`ALERT - ${title}: ${message}`);
+}
+
+/**
+ * Adds an entry to the Error Log sheet
+ * @param {Date} timestamp - When the error occurred
+ * @param {number} row - The row number in the Data sheet
+ * @param {string} errorType - Type of error
+ * @param {string} errorMessage - The error message
+ * @param {string} batchId - The batch ID (if applicable)
+ */
+function logError(timestamp, row, errorType, errorMessage, batchId = '') {
+  var errorSheet = getSheet('Error Log');
   
-function logExecution(rowIndex, promptSent, responseReceived, inputTokens, outputTokens, totalTokens, model) {
-  var cost = calculateCost(model, inputTokens, outputTokens);
-  var logSheet = getSheet('Execution Log');
-
-  if (logSheet.getLastRow() === 0) {
-    logSheet.appendRow(["Timestamp", "Row", "Model", "Prompt Sent", "Response Received", "Input Tokens", "Output Tokens", "Total Tokens", "Cost (USD)"]);
+  // Add headers if the sheet is empty
+  if (errorSheet.getLastRow() === 0) {
+    errorSheet.appendRow([
+      "Timestamp",
+      "Row",
+      "Error Type",
+      "Error Message",
+      "Batch ID"
+    ]);
+    
+    // Format the header row
+    errorSheet.getRange(1, 1, 1, 5).setFontWeight('bold');
+    errorSheet.setFrozenRows(1);
   }
+  
+  // Add the error entry
+  errorSheet.appendRow([
+    timestamp,
+    row,
+    errorType,
+    errorMessage,
+    batchId
+  ]);
+  
+  // Also log to the console for debugging
+  Logger.log(`ERROR - Row ${row}, Type: ${errorType}, Message: ${errorMessage}, Batch: ${batchId}`);
+}
 
+/**
+ * Adds an entry to the Execution Log sheet if debug mode is enabled
+ * @param {Date} timestamp - When the execution occurred
+ * @param {number} row - The row number in the Data sheet
+ * @param {string} model - The model used
+ * @param {string} promptName - The name of the prompt
+ * @param {string} responseContent - The response content received
+ * @param {number} inputTokens - Number of input tokens
+ * @param {number} outputTokens - Number of output tokens
+ * @param {number} totalTokens - Total tokens used
+ * @param {number} cost - The cost in USD
+ */
+function logExecution(timestamp, row, model, promptName, responseContent, inputTokens, outputTokens, totalTokens, cost) {
+  // Only log execution if debug mode is enabled
+  if (!isDebugModeEnabled()) {
+    return;
+  }
+  
+  var logSheet = getSheet('Execution Log');
+  
+  // Add headers if the sheet is empty
+  if (logSheet.getLastRow() === 0) {
+    logSheet.appendRow([
+      "Timestamp",
+      "Row",
+      "Model",
+      "Prompt Sent",
+      "Response Received",
+      "Input Tokens",
+      "Output Tokens",
+      "Total Tokens",
+      "Cost (USD)"
+    ]);
+    
+    // Format the header row
+    logSheet.getRange(1, 1, 1, 9).setFontWeight('bold');
+    logSheet.setFrozenRows(1);
+  }
+  
+  // Add the log entry
   logSheet.appendRow([
-    new Date().toISOString(),
-    rowIndex,
+    timestamp,
+    row,
     model,
-    promptSent,
-    responseReceived,
+    promptName,
+    responseContent,
     inputTokens,
     outputTokens,
     totalTokens,
-    cost.toFixed(6)
+    cost
   ]);
-}
   
-function logError(rowIndex, errorMessage) {
-  getSheet('Error Log').appendRow([new Date().toISOString(), rowIndex, errorMessage]);
+  // Also log a summary to the console
+  Logger.log(`EXECUTION - Row ${row}, Model: ${model}, Prompt: ${promptName}, Tokens: ${totalTokens}, Cost: $${cost.toFixed(6)}`);
+}
+
+/**
+ * Logs a debug message only if debug mode is enabled
+ * @param {string} message - The message to log
+ */
+function debugLog(message) {
+  if (isDebugModeEnabled()) {
+    Logger.log(`DEBUG - ${message}`);
+  }
 }
   
 /* ======== Main Function to Run Prompts ======== */
@@ -581,7 +686,7 @@ function runPrompts(maxRows) {
   var apiKey = getApiKey();
   
   if (!apiKey) {
-    showDebugAlert('Error', 'API key is missing. Please add it to the Config sheet.', ui.ButtonSet.OK, true);
+    showAlert('Error', 'API key is missing. Please add it to the Config sheet.', ui.ButtonSet.OK);
     return;
   }
   
@@ -590,68 +695,18 @@ function runPrompts(maxRows) {
     var startTime = new Date();
     var debugMode = isDebugModeEnabled();
     
-    // Get active prompts from the Prompts sheet
-    var promptsSheet = getSheet('Prompts');
-    if (!promptsSheet) {
-      showDebugAlert('Error', 'Prompts sheet not found.', ui.ButtonSet.OK, true);
-      return;
-    }
-    
-    var promptsData = promptsSheet.getDataRange().getValues();
-    var promptsHeaders = promptsData[0];
-    
-    // Find column indices in the Prompts sheet
-    var promptNameIndex = -1;
-    var promptTextIndex = -1;
-    var modelIndex = -1;
-    var activeIndex = -1;
-    
-    for (var i = 0; i < promptsHeaders.length; i++) {
-      var header = promptsHeaders[i];
-      if (header === null || header === undefined) continue;
-      
-      var headerStr = String(header); // Safely convert to string
-      
-      if (headerStr === 'Prompt Name') promptNameIndex = i;
-      if (headerStr === 'Prompt Text') promptTextIndex = i;
-      if (headerStr === 'Model') modelIndex = i;
-      if (headerStr === 'Active') activeIndex = i;
-    }
-    
-    if (promptNameIndex < 0 || promptTextIndex < 0) {
-      showDebugAlert('Error', 'Prompts sheet is missing required columns.', ui.ButtonSet.OK, true);
-      return;
-    }
-    
-    // Get active prompts
-    var activePrompts = [];
-    for (var i = 1; i < promptsData.length; i++) {
-      var isActive = activeIndex >= 0 ? 
-                    (promptsData[i][activeIndex] === 1 || 
-                     promptsData[i][activeIndex] === '1' || 
-                     promptsData[i][activeIndex] === true || 
-                     promptsData[i][activeIndex] === 'TRUE' || 
-                     promptsData[i][activeIndex] === 'Yes' || 
-                     promptsData[i][activeIndex] === 'true') : true;
-      
-      if (isActive) {
-        activePrompts.push({
-          name: promptsData[i][promptNameIndex],
-          text: promptsData[i][promptTextIndex],
-          model: modelIndex >= 0 ? promptsData[i][modelIndex] : getDefaultModel()
-        });
-      }
-    }
+    // Get active prompts using the getActivePrompts function
+    var activePrompts = getActivePrompts();
     
     if (activePrompts.length === 0) {
-      showDebugAlert('No Active Prompts', 'No active prompts found in the Prompts sheet.', ui.ButtonSet.OK);
+      showAlert('No Active Prompts', 'No active prompts found in the Prompts sheet.', ui.ButtonSet.OK);
       return;
     }
     
     // Get data from the Data sheet
     var dataSheet = getSheet('Data');
     if (!dataSheet) {
-      showDebugAlert('Error', 'Data sheet not found.', ui.ButtonSet.OK, true);
+      showAlert('Error', 'Data sheet not found.', ui.ButtonSet.OK);
       return;
     }
     
@@ -687,7 +742,7 @@ function runPrompts(maxRows) {
     }
     
     if (rowsToProcess.length === 0) {
-      showDebugAlert('No Data', 'No rows found that need processing.', ui.ButtonSet.OK);
+      showAlert('No Data', 'No rows found that need processing.', ui.ButtonSet.OK);
       return;
     }
     
@@ -779,23 +834,21 @@ function runPrompts(maxRows) {
             saveResponseToDataSheet(dataSheet, headers, rowIndex, parsedResponse, promptName);
             
             // Log execution
-            if (debugMode) {
-              addExecutionLog(
-                new Date(),
-                rowNumber,
-                model,
-                promptName,
-                responseText,
-                inputTokens,
-                outputTokens,
-                totalTokens,
-                cost
-              );
-            }
+            logExecution(
+              new Date(),
+              rowNumber,
+              model,
+              promptName,
+              responseText,
+              inputTokens,
+              outputTokens,
+              totalTokens,
+              cost
+            );
             
             totalProcessed++;
           } catch (e) {
-            logError(rowNumber + 1, `Error processing ${promptName}: ${e.toString()}`);
+            logError(new Date(), rowNumber, 'Error processing', `Error processing ${promptName}: ${e.toString()}`, '');
             totalErrors++;
           }
         }
@@ -803,7 +856,7 @@ function runPrompts(maxRows) {
         // Mark the row as completed (status = 1 for non batch mode)
         dataSheet.getRange(rowNumber, statusColIndex + 1).setValue(1);
       } catch (e) {
-        logError(rowNumber + 1, e.toString());
+        logError(new Date(), rowNumber, 'Error processing', `Error processing row ${rowNumber}: ${e.toString()}`, '');
         totalErrors++;
       }
     }
@@ -829,12 +882,12 @@ function runPrompts(maxRows) {
       }
     }
     
-    showDebugAlert('Processing Complete', 
-                 `Processed ${totalProcessed} prompts with ${totalErrors} errors.`, 
-                 ui.ButtonSet.OK);
+    showAlert('Processing Complete', 
+             `Processed ${totalProcessed} prompts with ${totalErrors} errors.`, 
+             ui.ButtonSet.OK);
   } catch (e) {
     debugLog('Error running prompts: ' + e.toString());
-    showDebugAlert('Error', 'Failed to run prompts: ' + e.toString(), ui.ButtonSet.OK, true);
+    showAlert('Error', 'Failed to run prompts: ' + e.toString(), ui.ButtonSet.OK);
   }
 }
   
@@ -909,7 +962,7 @@ function saveResponseToDataSheet(sheet, headers, rowIndex, response, promptName)
     }
   } catch (e) {
     debugLog("Error processing response: " + e);
-    logError(rowIndex + 1, "Error processing response: " + e.toString());
+    logError(new Date(), rowIndex, 'Error processing response', `Error processing response: ${e.toString()}`, '');
   }
 }
   
@@ -1015,7 +1068,7 @@ function createBatch(maxRows, batchSize) {
   var apiKey = getApiKey();
   
   if (!apiKey) {
-    showDebugAlert('Error', 'API key is missing. Please add it to the Config sheet.', ui.ButtonSet.OK, true);
+    showAlert('Error', 'API key is missing. Please add it to the Config sheet.', ui.ButtonSet.OK);
     return;
   }
   
@@ -1024,7 +1077,7 @@ function createBatch(maxRows, batchSize) {
     var nextBatchInfo = findNextBatchRows(maxRows, batchSize);
     
     if (!nextBatchInfo || nextBatchInfo.startRow > nextBatchInfo.endRow) {
-      showDebugAlert('No Data', 'No more rows to process or all rows are already processed.', ui.ButtonSet.OK);
+      showAlert('No Data', 'No more rows to process or all rows are already processed.', ui.ButtonSet.OK);
       return;
     }
     
@@ -1033,13 +1086,13 @@ function createBatch(maxRows, batchSize) {
     
     // Check if there are any requests to process
     if (!batchData || !batchData.requests || batchData.requests.length === 0) {
-      showDebugAlert('No Data', 'No requests to process in the selected rows.', ui.ButtonSet.OK);
+      showAlert('No Data', 'No requests to process in the selected rows.', ui.ButtonSet.OK);
       return;
     }
     
     // Check batch size limits
     if (batchData.requests.length > 50000) {
-      showDebugAlert('Batch Too Large', 
+      showAlert('Batch Too Large', 
                'This batch contains ' + batchData.requests.length + ' requests, which exceeds the OpenAI limit of 50,000 requests per batch. Please reduce the ' + CONFIG_KEYS.BATCH_SIZE + ' in Config.',
                ui.ButtonSet.OK);
       return;
@@ -1054,13 +1107,13 @@ function createBatch(maxRows, batchSize) {
     // Update the Data sheet with batch IDs
     updateDataSheetWithBatchId(batchData.rowIndices, batchId);
     
-    showDebugAlert('Success', 
+    showAlert('Success', 
              `Batch job created successfully!\n\nProcessed rows ${nextBatchInfo.startRow} to ${nextBatchInfo.endRow}\nBatch ID: ${batch.id}\nStatus: ${batch.status}\nTotal Requests: ${batchData.requests.length}\n\n${nextBatchInfo.remainingRows > 0 ? 'There are ' + nextBatchInfo.remainingRows + ' more rows to process. Run "Create Batch" again to process the next set.' : 'All rows have been processed.'}`, 
              ui.ButtonSet.OK);
              
   } catch (e) {
     debugLog('Error creating batch: ' + e.toString());
-    showDebugAlert('Error', 'Failed to create batch: ' + e.toString(), ui.ButtonSet.OK, true);
+    showAlert('Error', 'Failed to create batch: ' + e.toString(), ui.ButtonSet.OK);
   }
 }
   
@@ -1135,108 +1188,62 @@ function findNextBatchRows(maxRows, batchSize) {
 }
   
 /**
- * Prepares batch data for a specific range of rows
+ * Prepares batch data for the specified range of rows
  */
 function prepareBatchDataRange(startRow, endRow) {
-  // If invalid range, return empty result
-  if (startRow <= 0 || endRow <= 0 || startRow > endRow) {
-    return {
-      requests: [],
-      rowIndices: []
-    };
-  }
-  
   var dataSheet = getSheet('Data');
-  
-  if (!dataSheet) {
-    return {
-      requests: [],
-      rowIndices: []
-    };
-  }
-  
-  var lastRow = dataSheet.getLastRow();
-  
-  // Adjust endRow if it exceeds the actual data
-  endRow = Math.min(endRow, lastRow);
-  
-  // If we're only looking at the header row
-  if (startRow === 1 && endRow === 1) {
-    return {
-      requests: [],
-      rowIndices: []
-    };
-  }
-  
-  var dataRange = dataSheet.getRange(1, 1, lastRow, dataSheet.getLastColumn()).getValues();
+  var dataRange = dataSheet.getRange(1, 1, endRow, dataSheet.getLastColumn()).getValues();
   var headers = dataRange[0];
-  
-  // Ensure Status column exists
-  var statusColIndex = headers.indexOf("Status");
-  if (statusColIndex < 0) {
-    statusColIndex = headers.length;
-    dataSheet.getRange(1, statusColIndex + 1).setValue("Status");
-    headers.push("Status");
-  }
-  
-  // Ensure Batch ID column exists
-  var batchIdColIndex = headers.indexOf("Batch ID");
-  if (batchIdColIndex < 0) {
-    batchIdColIndex = headers.length;
-    dataSheet.getRange(1, batchIdColIndex + 1).setValue("Batch ID");
-    headers.push("Batch ID");
-  }
   
   // Get only active prompts
   var prompts = getActivePrompts();
   
-  var requests = [];
-  var rowIndices = []; // Stores row indices that are part of this batch
+  if (prompts.length === 0) {
+    debugLog("No active prompts found");
+    return null;
+  }
   
-  // Process only rows in the specified range
-  for (var rowIndex = startRow - 1; rowIndex < endRow; rowIndex++) {
-    // Skip rows that are already processed or already part of a batch
-    if (rowIndex >= dataRange.length || 
-        (dataRange[rowIndex][statusColIndex] > 0 || 
-         dataRange[rowIndex][batchIdColIndex])) {
-      continue;
-    }
+  var requests = [];
+  var rowIndices = [];
+  
+  // Process each row in the range
+  for (var i = startRow - 1; i < endRow; i++) {
+    var rowData = dataRange[i];
     
-    // Add this row to the batch
-    rowIndices.push(rowIndex + 1);
-    
-    for (var p = 0; p < prompts.length; p++) {
-      var promptName = prompts[p][0];
-      var promptText = prompts[p][1];
-      var model = (prompts[p][2] || getDefaultModel()).toLowerCase();
+    // Process each prompt for this row
+    for (var j = 0; j < prompts.length; j++) {
+      var prompt = prompts[j];
+      var promptName = prompt.name;
+      var promptText = prompt.text;
+      var model = prompt.model || getDefaultModel();
       
-      var finalPrompt = replaceVariables(promptText, headers, dataRange[rowIndex]);
+      // Replace variables in the prompt
+      var finalPrompt = replaceVariables(promptText, headers, rowData);
       
-      // Create a unique custom_id that encodes all necessary information
+      // Create a unique ID for this request that includes row and prompt info
       // Format: row-{rowIndex}-prompt-{promptIndex}-{promptName}
-      // This way we can extract all needed info from the custom_id itself
-      var customId = `row-${rowIndex+1}-prompt-${p+1}-${encodeURIComponent(promptName)}`;
+      // We URL encode the prompt name to handle special characters
+      var customId = `row-${i+1}-prompt-${j}-${encodeURIComponent(promptName)}`;
       
       // Create the request object
       var request = {
-        custom_id: customId,
-        method: "POST",
-        url: "/v1/chat/completions",
-        body: {
-          model: model,
-          messages: [
-            { role: 'system', content: 'You are a helpful assistant. Return valid JSON only.' },
-            { role: 'user', content: finalPrompt }
-          ],
-          temperature: 0.0,
-          max_tokens: 256,
-          seed: 42,
-          response_format: { type: "json_object" }
-        }
+        model: model,
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant. Return valid JSON only.' },
+          { role: 'user', content: finalPrompt }
+        ],
+        temperature: 0.0,
+        max_tokens: 256,
+        seed: 42,
+        response_format: { type: "json_object" },
+        custom_id: customId
       };
       
       requests.push(request);
     }
+    
+    // Add this row to the list of row indices
+    rowIndices.push(i + 1);
   }
   
   return {
@@ -1382,7 +1389,7 @@ function processBatchById(batchId, openAIBatchId) {
         Logger.log("Content sample: " + outputContent.substring(0, 200) + "...");
         
         // Process the results
-        var result = processOutputFile(outputContent, null, batchId);
+        var result = processOutputFile(outputContent, batchId);
         Logger.log("Processed output file: " + JSON.stringify(result));
         
         // Update the status to "processed" in our sheet
@@ -1400,7 +1407,7 @@ function processBatchById(batchId, openAIBatchId) {
       } catch (e) {
         Logger.log("Error processing batch " + batchId + ": " + e.toString());
         // Log the error but continue
-        addErrorLog(new Date(), 0, "Processing Error", "Error processing batch " + batchId + ": " + e.toString(), batchId);
+        logError(new Date(), 0, "Processing Error", "Error processing batch " + batchId + ": " + e.toString(), batchId);
       }
       break;
     }
@@ -1589,7 +1596,7 @@ function downloadFileFromOpenAI(fileId) {
 /**
  * Processes the output file and updates the Data sheet
  */
-function processOutputFile(outputContent, rowMap, batchId) {
+function processOutputFile(outputContent, batchId) {
   Logger.log("Starting processOutputFile for batch " + batchId);
   
   var dataSheet = getSheet('Data');
@@ -1626,7 +1633,7 @@ function processOutputFile(outputContent, rowMap, batchId) {
       var customIdParts = customId.split('-');
       if (customIdParts.length < 5 || customIdParts[0] !== 'row' || customIdParts[2] !== 'prompt') {
         Logger.log("Warning: Invalid custom_id format: " + customId);
-        addErrorLog(new Date(), 0, "Invalid Format", "Invalid custom_id format: " + customId, batchId);
+        logError(new Date(), 0, "Invalid Format", "Invalid custom_id format: " + customId, batchId);
         continue;
       }
       
@@ -1641,14 +1648,14 @@ function processOutputFile(outputContent, rowMap, batchId) {
       
       if (isNaN(rowNumber) || isNaN(promptIndex)) {
         Logger.log("Warning: Invalid row or prompt index in custom_id: " + customId);
-        addErrorLog(new Date(), 0, "Invalid Format", "Invalid row or prompt index in custom_id: " + customId, batchId);
+        logError(new Date(), 0, "Invalid Format", "Invalid row or prompt index in custom_id: " + customId, batchId);
         continue;
       }
       
       if (result.error) {
         // Log the error
         Logger.log("API Error for row " + rowNumber + ": " + result.error.message);
-        addErrorLog(new Date(), rowNumber, "API Error", `Batch error for ${promptName}: ${result.error.message}`, batchId);
+        logError(new Date(), rowNumber, "API Error", `Batch error for ${promptName}: ${result.error.message}`, batchId);
         failedRequests++;
         continue;
       }
@@ -1688,7 +1695,7 @@ function processOutputFile(outputContent, rowMap, batchId) {
           Logger.log("Successfully processed row " + rowNumber + " with model " + model);
           
           // Add to execution log with the response content
-          addExecutionLog(
+          logExecution(
             new Date(),
             rowNumber,
             model,
@@ -1721,17 +1728,17 @@ function processOutputFile(outputContent, rowMap, batchId) {
           successfulRequests++;
         } catch (e) {
           Logger.log("Error parsing content for row " + rowNumber + ": " + e.toString());
-          addErrorLog(new Date(), rowNumber, "Parse Error", `Error parsing content for ${promptName}: ${e.toString()}`, batchId);
+          logError(new Date(), rowNumber, "Parse Error", `Error parsing content for ${promptName}: ${e.toString()}`, batchId);
           failedRequests++;
         }
       } else {
         Logger.log("Invalid response for row " + rowNumber + ": " + JSON.stringify(response));
-        addErrorLog(new Date(), rowNumber, "Invalid Response", `Invalid response for ${promptName}`, batchId);
+        logError(new Date(), rowNumber, "Invalid Response", `Invalid response for ${promptName}`, batchId);
         failedRequests++;
       }
     } catch (e) {
       Logger.log("Error processing result in line " + (i+1) + ": " + e.toString());
-      addErrorLog(new Date(), 0, "Processing Error", `Error processing batch result: ${e.toString()}`, batchId);
+      logError(new Date(), 0, "Processing Error", `Error processing batch result: ${e.toString()}`, batchId);
       failedRequests++;
     }
   }
@@ -1761,152 +1768,4 @@ function processOutputFile(outputContent, rowMap, batchId) {
     success: successfulRequests,
     failed: failedRequests
   };
-}
-  
-/**
- * Shows an alert only if debug mode is enabled, or always for errors
- * @param {string} title - The alert title
- * @param {string} message - The alert message
- * @param {ButtonSet} buttons - The buttons to display
- * @param {boolean} isError - Whether this is an error message
- */
-function showDebugAlert(title, message, buttons, isError = false) {
-  // Always show error messages as popups
-  if (isError) {
-    SpreadsheetApp.getUi().alert(title, message, buttons);
-    Logger.log(`ERROR - ${title}: ${message}`);
-    return;
-  }
-  
-  // For non-error messages, only show/log if debug mode is enabled
-  if (isDebugModeEnabled()) {
-    SpreadsheetApp.getUi().alert(title, message, buttons);
-    Logger.log(`${title}: ${message}`);
-  }
-  // No logging if debug mode is disabled and it's not an error
-}
-  
-/**
- * Logs a message only if debug mode is enabled
- * @param {string} message - The message to log
- */
-function debugLog(message) {
-  if (isDebugModeEnabled()) {
-    Logger.log(message);
-  }
-}
-  
-/**
- * Adds an entry to the Execution Log sheet
- * @param {Date} timestamp - When the execution occurred
- * @param {number} row - The row number in the Data sheet
- * @param {string} model - The model used
- * @param {string} promptName - The name of the prompt
- * @param {string} responseContent - The response content received
- * @param {number} inputTokens - Number of input tokens
- * @param {number} outputTokens - Number of output tokens
- * @param {number} totalTokens - Total tokens used
- * @param {number} cost - The cost in USD
- */
-function addExecutionLog(timestamp, row, model, promptName, responseContent, inputTokens, outputTokens, totalTokens, cost) {
-  var logSheet = getSheet('Execution Log');
-  
-  // Add headers if the sheet is empty
-  if (logSheet.getLastRow() === 0) {
-    logSheet.appendRow([
-      "Timestamp",
-      "Row",
-      "Model",
-      "Prompt Sent",
-      "Response Received",
-      "Input Tokens",
-      "Output Tokens",
-      "Total Tokens",
-      "Cost (USD)"
-    ]);
-    
-    // Format the header row
-    logSheet.getRange(1, 1, 1, 9).setFontWeight('bold');
-    logSheet.setFrozenRows(1);
-  }
-  
-  // Add the log entry
-  logSheet.appendRow([
-    timestamp,
-    row,
-    model,
-    promptName,
-    responseContent,
-    inputTokens,
-    outputTokens,
-    totalTokens,
-    cost
-  ]);
-}
-  
-/**
- * Adds an entry to the Error Log sheet
- * @param {Date} timestamp - When the error occurred
- * @param {number} row - The row number in the Data sheet
- * @param {string} errorType - Type of error
- * @param {string} errorMessage - The error message
- * @param {string} batchId - The batch ID (if applicable)
- */
-function addErrorLog(timestamp, row, errorType, errorMessage, batchId = '') {
-  var errorSheet = getSheet('Error Log');
-  
-  // Add headers if the sheet is empty
-  if (errorSheet.getLastRow() === 0) {
-    errorSheet.appendRow([
-      "Timestamp",
-      "Row",
-      "Error Type",
-      "Error Message",
-      "Batch ID"
-    ]);
-    
-    // Format the header row
-    errorSheet.getRange(1, 1, 1, 5).setFontWeight('bold');
-    errorSheet.setFrozenRows(1);
-  }
-  
-  // Add the error entry
-  errorSheet.appendRow([
-    timestamp,
-    row,
-    errorType,
-    errorMessage,
-    batchId
-  ]);
-}
-  
-/**
- * Monitors changes to the Config sheet
- * @param {Event} e - The event object
- */
-function onEditConfig(e) {
-  if (!e || !e.source) return;
-  
-  var sheet = e.source.getActiveSheet();
-  if (sheet.getName() !== 'Config') return;
-  
-  var range = e.range;
-  var row = range.getRow();
-  var col = range.getColumn();
-  var value = range.getValue();
-  
-  // Log the change
-  Logger.log(`Config sheet edited: Row ${row}, Column ${col}, Value: ${value}`);
-  
-  // If this is a key cell (column 1)
-  if (col === 1) {
-    Logger.log(`Config key changed to: ${value}`);
-  }
-  
-  // If this is a value cell (column 2)
-  if (col === 2) {
-    // Get the key
-    var key = sheet.getRange(row, 1).getValue();
-    Logger.log(`Config value changed for key "${key}": ${value}`);
-  }
 }
