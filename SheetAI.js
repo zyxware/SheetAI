@@ -15,7 +15,10 @@ const CONFIG_KEYS = {
   API_KEY: 'API_KEY',
   DEFAULT_MODEL: 'DEFAULT_MODEL',
   DEBUG: 'DEBUG',
-  BATCH_SIZE: 'BATCH_SIZE'
+  BATCH_SIZE: 'BATCH_SIZE',
+  TEMPERATURE: 'TEMPERATURE',
+  MAX_TOKENS: 'MAX_TOKENS',
+  SEED: 'SEED'
 };
 
 /**
@@ -24,7 +27,10 @@ const CONFIG_KEYS = {
 const CONFIG_DEFAULTS = {
   DEFAULT_MODEL: 'gpt-4o-mini',
   DEBUG: false,
-  BATCH_SIZE: 2000
+  BATCH_SIZE: 2000,
+  TEMPERATURE: 0,
+  MAX_TOKENS: 256,
+  SEED: 101
 };
 
 /**
@@ -223,7 +229,7 @@ function checkBatchStatus() {
     }
     
     if (openAIBatchIdColIndex < 0 || statusColIndex < 0) {
-      showAlert('Error', 'Batch Status sheet is missing required columns.', ui.ButtonSet.OK, true);
+      showAlert('Error', 'Batch Status sheet is missing required columns.', ui.ButtonSet.OK);
       return;
     }
     
@@ -360,7 +366,7 @@ function checkAndProcessNextCompletedBatch() {
     
     if (openAIBatchIdColIndex < 0 || statusColIndex < 0) {
       Logger.log("Missing required columns in Batch Status sheet");
-      showAlert('Error', 'Batch Status sheet is missing required columns.', ui.ButtonSet.OK, true);
+      showAlert('Error', 'Batch Status sheet is missing required columns.', ui.ButtonSet.OK);
       return;
     }
     
@@ -479,20 +485,9 @@ function checkAndProcessNextCompletedBatch() {
 }
   
 /* ======== Utility Functions ======== */
-  
-function getApiKey() {
-  return getSheet('Config').getRange('B1').getValue();
-}
-  
-function getDefaultModel() {
-  var configSheet = getSheet('Config');
-  var model = configSheet.getRange('B2').getValue();
-  return model || "gpt-4o-mini";
-}
-  
 /**
  * Gets only the active prompts from the Prompts sheet
- * @return {Array} Array of active prompts with name, text, and model properties
+ * @return {Array} Array of active prompts with name, text, model, temperature, max_tokens, and seed properties
  */
 function getActivePrompts() {
   var promptsSheet = getSheet('Prompts');
@@ -508,6 +503,13 @@ function getActivePrompts() {
   var promptTextIndex = headers.indexOf("Prompt Text");
   var modelIndex = headers.indexOf("Model");
   var activeColIndex = headers.indexOf("Active");
+  var temperatureIndex = headers.indexOf("Temperature");
+  var maxTokensIndex = headers.indexOf("Max Tokens");
+
+  // Get default values from config
+  var defaultTemperature = getTemperature();
+  var defaultMaxTokens = getMaxTokens();
+  var defaultModel = getDefaultModel();
   
   // If required columns don't exist, return empty array
   if (promptNameIndex < 0 || promptTextIndex < 0) {
@@ -538,17 +540,14 @@ function getActivePrompts() {
       activePrompts.push({
         name: promptsData[i][promptNameIndex],
         text: promptsData[i][promptTextIndex],
-        model: modelIndex >= 0 ? promptsData[i][modelIndex] : getDefaultModel()
+        model: modelIndex >= 0 && promptsData[i][modelIndex] ? promptsData[i][modelIndex] : defaultModel,
+        temperature: temperatureIndex >= 0 && promptsData[i][temperatureIndex] !== "" && promptsData[i][temperatureIndex] !== null && promptsData[i][temperatureIndex] !== undefined ? promptsData[i][temperatureIndex] : defaultTemperature,
+        max_tokens: maxTokensIndex >= 0 && promptsData[i][maxTokensIndex] ? promptsData[i][maxTokensIndex] : defaultMaxTokens
       });
     }
   }
   
   return activePrompts;
-}
-  
-function getBatchSize() {
-  var size = getConfigValue(CONFIG_KEYS.BATCH_SIZE);
-  return size !== undefined ? size : CONFIG_DEFAULTS.BATCH_SIZE;
 }
   
 function getPricing(model) {
@@ -684,6 +683,7 @@ function debugLog(message) {
 function runPrompts(maxRows) {
   var ui = SpreadsheetApp.getUi();
   var apiKey = getApiKey();
+  var seed = getSeed();
   
   if (!apiKey) {
     showAlert('Error', 'API key is missing. Please add it to the Config sheet.', ui.ButtonSet.OK);
@@ -765,7 +765,9 @@ function runPrompts(maxRows) {
           var prompt = activePrompts[j];
           var promptName = prompt.name;
           var promptTemplate = prompt.text;
-          var model = prompt.model || getDefaultModel();
+          var model = prompt.model;
+          var temperature = prompt.temperature;
+          var max_tokens = prompt.max_tokens;
           
           try {
             // Replace placeholders in the prompt template
@@ -799,7 +801,7 @@ function runPrompts(maxRows) {
             
             // Call the OpenAI API
             var apiCallStartTime = new Date();
-            var response = callOpenAI(apiKey, model, promptText);
+            var response = callOpenAI(apiKey, model, promptText, temperature, max_tokens, seed);
             var apiCallEndTime = new Date();
             var apiCallDuration = (apiCallEndTime - apiCallStartTime) / 1000; // Duration in seconds
             
@@ -808,7 +810,7 @@ function runPrompts(maxRows) {
             var inputTokens = response.inputTokens;
             var outputTokens = response.outputTokens;
             var totalTokens = response.totalTokens;
-            var cost = calculateCost(model, inputTokens, outputTokens, true);
+            var cost = calculateCost(model, inputTokens, outputTokens, false, response.cachedTokens);
             
             // Update metrics
             if (!promptMetrics[promptName]) {
@@ -819,7 +821,8 @@ function runPrompts(maxRows) {
                 totalTokens: 0,
                 cost: 0,
                 model: model,
-                duration: 0
+                duration: 0,
+                cachedTokens: 0
               };
             }
             
@@ -829,6 +832,7 @@ function runPrompts(maxRows) {
             promptMetrics[promptName].totalTokens += totalTokens;
             promptMetrics[promptName].cost += cost;
             promptMetrics[promptName].duration += apiCallDuration;
+            promptMetrics[promptName].cachedTokens += response.cachedTokens || 0;
             
             // Save response to the Data sheet
             saveResponseToDataSheet(dataSheet, headers, rowIndex, parsedResponse, promptName);
@@ -877,7 +881,8 @@ function runPrompts(maxRows) {
           metrics.count,
           metrics.inputTokens,
           metrics.outputTokens,
-          metrics.cost
+          metrics.cost,
+          metrics.cachedTokens || 0
         );
       }
     }
@@ -892,7 +897,7 @@ function runPrompts(maxRows) {
 }
   
 /* ======== Cost Summary Functions ======== */
-function addPromptSummary(startTime, endTime, durationSeconds, promptName, rowsExecuted, inputTokens, outputTokens, cost) {
+function addPromptSummary(startTime, endTime, durationSeconds, promptName, rowsExecuted, inputTokens, outputTokens, cost, cachedTokens = 0) {
   var costSummarySheet = getSheet('Cost Summary');
   
   // Initialize headers if sheet is empty
@@ -905,6 +910,7 @@ function addPromptSummary(startTime, endTime, durationSeconds, promptName, rowsE
       "Prompt Title", 
       "No. of Rows Executed", 
       "Total Input Tokens", 
+      "Cached Tokens",
       "Total Output Tokens", 
       "Total Tokens", 
       "Total Cost (USD)"
@@ -925,6 +931,7 @@ function addPromptSummary(startTime, endTime, durationSeconds, promptName, rowsE
     promptName,
     rowsExecuted,
     inputTokens,
+    cachedTokens,
     outputTokens,
     inputTokens + outputTokens,
     cost.toFixed(6)
@@ -932,7 +939,7 @@ function addPromptSummary(startTime, endTime, durationSeconds, promptName, rowsE
   
   // Format the cost column as currency
   var lastRow = costSummarySheet.getLastRow();
-  costSummarySheet.getRange(lastRow, 10).setNumberFormat("$0.000000");
+  costSummarySheet.getRange(lastRow, 11).setNumberFormat("$0.000000");
   
   // Format the duration as number with 1 decimal place
   costSummarySheet.getRange(lastRow, 4).setNumberFormat("0.0");
@@ -967,7 +974,7 @@ function saveResponseToDataSheet(sheet, headers, rowIndex, response, promptName)
 }
   
 /* ======== OpenAI API Function ======== */
-function callOpenAI(apiKey, model, prompt) {
+function callOpenAI(apiKey, model, prompt, temperature, max_tokens, seed) {
   var url = 'https://api.openai.com/v1/chat/completions';
 
   var payload = {
@@ -976,9 +983,9 @@ function callOpenAI(apiKey, model, prompt) {
       { role: 'system', content: 'You are a helpful assistant. Return valid JSON only.' },
       { role: 'user', content: prompt }
     ],
-    temperature: 0.0,
-    max_tokens: 256,
-    seed: 42,
+    temperature: temperature,
+    max_tokens: max_tokens,
+    seed: seed,
     response_format: { type: "json_object" }
   };
 
@@ -1008,12 +1015,19 @@ function callOpenAI(apiKey, model, prompt) {
     throw new Error('Failed to parse OpenAI response as JSON: ' + e.toString());
   }
   
+  // Extract cached tokens if available
+  var cachedTokens = 0;
+  if (json.usage && json.usage.prompt_tokens_details && json.usage.prompt_tokens_details.cached_tokens) {
+    cachedTokens = json.usage.prompt_tokens_details.cached_tokens;
+  }
+  
   return {
     text: JSON.stringify(parsedContent),
     parsedJson: parsedContent,
     inputTokens: json.usage?.prompt_tokens || 0,
     outputTokens: json.usage?.completion_tokens || 0,
-    totalTokens: json.usage?.total_tokens || 0
+    totalTokens: json.usage?.total_tokens || 0,
+    cachedTokens: cachedTokens
   };
 }
   
@@ -1029,7 +1043,7 @@ function replaceVariables(prompt, headers, rowData) {
 }
   
 /* ======== Calculate OpenAI API Cost ======== */
-function calculateCost(model, inputTokens, outputTokens, isBatch = false) {
+function calculateCost(model, inputTokens, outputTokens, isBatch = false, cachedTokens = 0) {
   // Normalize model name to lowercase
   var modelLower = model.toLowerCase();
   
@@ -1051,11 +1065,19 @@ function calculateCost(model, inputTokens, outputTokens, isBatch = false) {
     }
   }
   
-  // Calculate cost
-  var inputCost = (inputTokens / 1000000) * pricing.input_per_1m;
+  // Calculate cost with cached tokens
+  var nonCachedTokens = inputTokens - cachedTokens;
+  var nonCachedCost = (nonCachedTokens / 1000000) * pricing.input_per_1m;
+  
+  // Calculate cached tokens cost if applicable and not a batch request
+  var cachedCost = 0;
+  if (cachedTokens > 0 && !isBatch && pricing.cached_input_per_1m) {
+    cachedCost = (cachedTokens / 1000000) * pricing.cached_input_per_1m;
+  }
+  
   var outputCost = (outputTokens / 1000000) * pricing.output_per_1m;
   
-  return inputCost + outputCost;
+  return nonCachedCost + cachedCost + outputCost;
 }
   
 /* ======== Batch Processing Functions ======== */
@@ -1195,6 +1217,8 @@ function prepareBatchDataRange(startRow, endRow) {
   var dataRange = dataSheet.getRange(1, 1, endRow, dataSheet.getLastColumn()).getValues();
   var headers = dataRange[0];
   
+  var defaultSeed = getSeed();
+
   // Get only active prompts
   var prompts = getActivePrompts();
   
@@ -1215,14 +1239,15 @@ function prepareBatchDataRange(startRow, endRow) {
       var prompt = prompts[j];
       var promptName = prompt.name;
       var promptText = prompt.text;
-      var model = prompt.model || getDefaultModel();
+      var model = prompt.model;
+      var temperature = prompt.temperature;
+      var maxTokens = prompt.max_tokens;
+      var seed = defaultSeed;
       
       // Replace variables in the prompt
       var finalPrompt = replaceVariables(promptText, headers, rowData);
       
       // Create a unique ID for this request that includes row and prompt info
-      // Format: row-{rowIndex}-prompt-{promptIndex}-{promptName}
-      // We URL encode the prompt name to handle special characters
       var customId = `row-${i+1}-prompt-${j}-${encodeURIComponent(promptName)}`;
       
       // Create the request object
@@ -1232,9 +1257,9 @@ function prepareBatchDataRange(startRow, endRow) {
           { role: 'system', content: 'You are a helpful assistant. Return valid JSON only.' },
           { role: 'user', content: finalPrompt }
         ],
-        temperature: 0.0,
-        max_tokens: 256,
-        seed: 42,
+        temperature: temperature,
+        max_tokens: maxTokens,
+        seed: seed,
         response_format: { type: "json_object" },
         custom_id: customId
       };
@@ -1483,7 +1508,26 @@ function createBatchJob(requests) {
  */
 function createJsonlContent(requests) {
   return requests.map(function(request) {
-    return JSON.stringify(request);
+    // Extract the model and custom_id
+    var model = request.model;
+    var customId = request.custom_id;
+    
+    // Create the properly formatted request object with explicit ordering
+    var formattedRequest = {
+      custom_id: customId,
+      method: "POST",
+      url: "/v1/chat/completions",
+      body: {
+        model: model,
+        messages: request.messages,
+        temperature: request.temperature,
+        max_tokens: request.max_tokens,
+        seed: request.seed,
+        response_format: request.response_format
+      }
+    };
+    
+    return JSON.stringify(formattedRequest);
   }).join('\n');
 }
   
@@ -1690,7 +1734,7 @@ function processOutputFile(outputContent, batchId) {
           var inputTokens = responseBody.usage.prompt_tokens;
           var outputTokens = responseBody.usage.completion_tokens;
           var totalTokens = responseBody.usage.total_tokens;
-          var cost = calculateCost(model, inputTokens, outputTokens, true);
+          var cost = calculateCost(model, inputTokens, outputTokens, true, 0);
           
           Logger.log("Successfully processed row " + rowNumber + " with model " + model);
           
@@ -1715,7 +1759,8 @@ function processOutputFile(outputContent, batchId) {
               totalTokens: 0,
               cost: 0,
               model: model,
-              duration: 0 // We don't have individual durations for batch requests
+              duration: 0,
+              cachedTokens: 0
             };
           }
           
@@ -1757,7 +1802,8 @@ function processOutputFile(outputContent, batchId) {
       metrics.count,
       metrics.inputTokens,
       metrics.outputTokens,
-      metrics.cost
+      metrics.cost,
+      0  // Batch requests don't use cached tokens
     );
   }
   
@@ -1768,4 +1814,31 @@ function processOutputFile(outputContent, batchId) {
     success: successfulRequests,
     failed: failedRequests
   };
+}
+
+/**
+ * Gets the temperature from the Config sheet or uses the default
+ * @returns {number} The temperature value
+ */
+function getTemperature() {
+  var temp = getConfigValue(CONFIG_KEYS.TEMPERATURE);
+  return temp !== undefined ? Number(temp) : CONFIG_DEFAULTS.TEMPERATURE;
+}
+
+/**
+ * Gets the max tokens from the Config sheet or uses the default
+ * @returns {number} The max tokens value
+ */
+function getMaxTokens() {
+  var tokens = getConfigValue(CONFIG_KEYS.MAX_TOKENS);
+  return tokens !== undefined ? parseInt(tokens) : CONFIG_DEFAULTS.MAX_TOKENS;
+}
+
+/**
+ * Gets the seed from the Config sheet or uses the default
+ * @returns {number} The seed value
+ */
+function getSeed() {
+  var seed = getConfigValue(CONFIG_KEYS.SEED);
+  return seed !== undefined ? parseInt(seed) : CONFIG_DEFAULTS.SEED;
 }
