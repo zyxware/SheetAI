@@ -2,7 +2,7 @@
 
 ## Overview
 
-**SheetAI** applies AI prompts to data in Google Sheets, generating results as additional columns for streamlined classification, enrichment, and analysis. It simplifies tasks such as data classification, enrichment, and processing with minimal manual effort.
+**SheetAI** applies [AI prompts to data in Google Sheets](https://www.zyxware.com/article/6907/sheetai-automate-data-processing-google-sheets-ai), generating results as additional columns for streamlined classification, enrichment, and analysis. It simplifies tasks such as data classification, enrichment, and processing with minimal manual effort.
 
 ![Template Screenshot](https://raw.githubusercontent.com/zyxware/SheetAI/refs/heads/main/doc-assets/template-image.png)
 
@@ -39,7 +39,8 @@ As this is a generic framework to apply prompts to data in a Google Sheet, the u
 
 ### **Step 1: Setup the Google Sheet**
 
-The template has all the structure ready, the data sheet is where you put your data.
+The template has all the structure ready, the data sheet is where you put your data. 
+Note: Please do not delete the Status and Batch ID columns from Data sheet. You can remove or add any columns from column C onwards.
 
 ### **Step 2: Configure API Key & Settings**
 
