@@ -149,11 +149,13 @@ function onOpen() {
   
 function runPromptsForFirst10Rows() {
   if (!validateConfig()) return;
+  checkForUpdates();
   runPrompts(10);
 }
   
 function runPromptsForAllRows() {
   if (!validateConfig()) return;
+  checkForUpdates();
   runPrompts(Infinity);
 }
 
@@ -168,7 +170,7 @@ function getBatchSize() {
   
 function createBatchWithConfigLimit() {
   if (!validateConfig()) return;
-  
+  checkForUpdates();
   // Check if a batch is already being created
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) {
@@ -189,7 +191,7 @@ function createBatchWithConfigLimit() {
   
 function checkBatchStatus() {
   if (!validateConfig()) return;
-  
+  checkForUpdates();
   var ui = SpreadsheetApp.getUi();
   
   try {
@@ -1842,4 +1844,71 @@ function getMaxTokens() {
 function getSeed() {
   var seed = getConfigValue(CONFIG_KEYS.SEED);
   return seed !== undefined ? parseInt(seed) : CONFIG_DEFAULTS.SEED;
+}
+
+function getCurrentVersion() {
+  return "2.1"
+}
+
+/**
+ * Checks for script updates and displays a popup if a new version is available.
+ */
+function checkForUpdates() {
+  var lastCheckDateRaw = getConfigValue("UPDATE_CHECK");
+  
+  var lastCheckDate = lastCheckDateRaw ? new Date(lastCheckDateRaw) : null;
+  var today = new Date();
+
+  // If already checked within the last 2 days, exit
+  if (lastCheckDate && (today - lastCheckDate) / (1000 * 60 * 60 * 24) < 2) {
+    return;
+  }
+
+  var url = "https://www.zyxware.com/apps/sheettransformai/version.json";
+  var latestVersion, notes, updateLink;
+  
+  try {
+    var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true, timeout: 5000 });
+    if (response.getResponseCode() !== 200) {
+      Logger.log("Failed to fetch update information.");
+    }
+    var data = JSON.parse(response.getContentText());
+    latestVersion = data.latest;
+    notes = data.notes;
+    updateLink = data.link;
+  } catch (e) {
+    Logger.log("Error fetching update information: " + e.message);
+    return;
+  }
+
+  var currentVersion = getCurrentVersion();
+
+  if (currentVersion !== latestVersion) {
+    var ui = SpreadsheetApp.getUi();
+    var htmlContent = '<p>Version ' + latestVersion + ' is available.</p>' +
+                      '<p>' + notes.replace(/\n/g, '<br>') + '</p>' +
+                      '<p><a href="' + updateLink + '" target="_blank">Click here to get the latest template</a></p>';
+    var htmlOutput = HtmlService.createHtmlOutput(htmlContent).setWidth(400).setHeight(200);
+    ui.showModalDialog(htmlOutput, "SheetTransformAI: New Version Available!");
+  }
+
+  setConfigValue("UPDATE_CHECK", today);
+}
+
+
+/**
+ * Sets a configuration value in the Config sheet.
+ * @param {string} key - The configuration key.
+ * @param {any} value - The configuration value.
+ */
+function setConfigValue(key, value) {
+  var configSheet = getSheet('Config');
+  var configData = configSheet.getDataRange().getValues();
+
+  for (var i = 0; i < configData.length; i++) {
+    if (configData[i][0] === key) {
+      configSheet.getRange(i + 1, 2).setValue(value);
+      return;
+    }
+  }
 }

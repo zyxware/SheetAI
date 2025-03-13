@@ -154,7 +154,7 @@ We are not capturing any user data or sending data to external systems, the scri
 
 ## Support
 
-This application was developed as an internal tool and we would continue to improve and optimize this for as long as we use it. If however you would like us to customize this or build a similar or related system to automate your tasks with AI, we would be available for commercial support.
+This application was developed as an internal tool and we would continue to improve and optimize this for as long as we use it. If however you would like us to customize this or build a similar or related system to automate your tasks with AI, we would be available for commercial support. 
 
 ## About Us
 
@@ -165,6 +165,9 @@ Our mission is to enable people to leverage Information Technology and promote a
 Our AI & Automation Services focuses on creating solutions incorporating AI and automation tools to improve your business operations. We provide free tools like this as well as offer custom solutions tailored to your business needs.
 
 [Reach out to us](https://www.zyxware.com/contact-us) to schedule a free discovery call.
+
+## Updates
+For updates and new versions visit: https://www.zyxware.com/article/6907/sheettransformai-automate-data-processing-google-sheets-ai
 
 ## Contact
 https://www.zyxware.com/contact-us
@@ -179,7 +182,7 @@ https://github.com/zyxware/SheetTrasformAI/issues
 
 ## License and Disclaimer
 
-GPL v2 – Free to use & modify. Use it at your own risk. We are not collecting any user data or sending data to external systems other then OpenAI apis. Use the API key generated in your OpenAI account and make sure to revoke it if you are sharing this sheet with others. You can also set budget in OpenAI account to avoid unexpected costs. Google Sheet comes with revisions and the data you put in the document may be available in revisions even if you delete the sheet.
+GPL v2 – Free to use & modify. Use it at your own risk. We are not collecting any user data. Use the API key generated in your OpenAI account and make sure to revoke it if you are sharing this sheet with others. You can also set budget in OpenAI account to avoid unexpected costs. Google Sheet comes with revisions and the data you put in the document may be available in revisions even if you delete the sheet.
 
 ## Need Help or Commercial Support?
 
