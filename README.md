@@ -1,10 +1,10 @@
-# SheetAI
+# SheetTransformAI
 
 ## Overview
 
-**SheetAI** applies [AI prompts to data in Google Sheets](https://www.zyxware.com/article/6907/sheetai-automate-data-processing-google-sheets-ai), generating results as additional columns for streamlined classification, enrichment, and analysis. It simplifies tasks such as data classification, enrichment, and processing with minimal manual effort.
+**SheetTransformAI** applies [AI prompts to data in Google Sheets](https://www.zyxware.com/article/6907/sheettransformai-automate-data-processing-google-sheets-ai), generating results as additional columns for streamlined classification, enrichment, and analysis. It simplifies tasks such as data classification, enrichment, and processing with minimal manual effort.
 
-![Template Screenshot](https://raw.githubusercontent.com/zyxware/SheetAI/refs/heads/main/doc-assets/template-image.png)
+![Template Screenshot](https://raw.githubusercontent.com/zyxware/SheetTransformAI/refs/heads/main/doc-assets/template-image.png)
 
 ## Features
 
@@ -74,7 +74,7 @@ Return only valid JSON with the following keys:
  AI Services: Yes or No based on whether the company has AI-related services.
 ```
 
-SheetAI will replace `{{Company Description}}` and `{{Industry}}` with the actual values from the corresponding columns in each row when sending the prompt to OpenAI. Ensure that the column names match exactly as they appear in the **Data** sheet. For example:
+SheetTransformAI will replace `{{Company Description}}` and `{{Industry}}` with the actual values from the corresponding columns in each row when sending the prompt to OpenAI. Ensure that the column names match exactly as they appear in the **Data** sheet. For example:
 
 - ✅ Correct: `{{Company Description}}`
 - ❌ Incorrect: `{{company_description}}` (case-sensitive) or `{{CompanyDescription}}` (missing space)
@@ -113,7 +113,7 @@ In this case, the openai will return a json with the keys `Type` and `AI Service
 1. The **Data** sheet should have a header row (Row 1).
 2. Add relevant data columns that AI will process.
 
-### **Step 5: Run SheetAI**
+### **Step 5: Run SheetTrasformAI**
 
 All you need to do is create prompts, use the columns you want to include in the prompt as tokens, and click **OpenAI Tools** -> **Run for All Rows**. Wait for the processing to complete and view the results in newly created columns.
 
@@ -125,7 +125,7 @@ For large datasets, you can use the batch processing feature:
 3. When the batch is complete, click **OpenAI Tools** -> **Check and Process Batch** to process the results
 
 As this script is not yet verified by Google, you should be asked to authorize the script. You should follow the steps:
-![Permission to access the AppScript](https://raw.githubusercontent.com/zyxware/SheetAI/refs/heads/main/doc-assets/Permission%20to%20the%20AppScript.png)
+![Permission to access the AppScript](https://raw.githubusercontent.com/zyxware/SheetTransformAI/refs/heads/main/doc-assets/Permission%20to%20the%20AppScript.png)
 
 We are not capturing any user data or sending data to external systems, the script will run completly on your sheet and only communicate to OpenAI apis. You can get full source code by clicking on Extensions -> AppScript Menu in Google Sheets.
 
@@ -169,11 +169,11 @@ https://www.zyxware.com/contact-us
 
 ## Source Repository
 
-https://github.com/zyxware/SheetAI
+https://github.com/zyxware/SheetTrasformAI
 
 ## Reporting Issues
 
-https://github.com/zyxware/SheetAI/issues
+https://github.com/zyxware/SheetTrasformAI/issues
 
 ## License and Disclaimer
 
