@@ -158,11 +158,13 @@ This application was developed as an internal tool and we would continue to impr
 
 ## About Us
 
-Zyxware Technologies enables brands to define and execute the next steps in their digital transformation journey; a journey towards rich, personalised experiences for their stakeholders. Zyxware assures sustainable results for businesses on the twin engines of privacy centered data strategy and digital services focused on scalability and adaptiveness.
+[Zyxware Technologies](www.zyxware.com) was founded with the vision of delivering true value to its people, clients and the society and is anchored on the values of honesty and fairness.
 
-Headquartered in India, with offices in the USA & Australia - Zyxware has a team with competencies in Business, Engineering, and Experience, enabling brands to achieve digital agility and leadership in their categories since 2006.
+Our mission is to enable people to leverage Information Technology and promote and popularise the philosophy of Free Software.
 
-We specialize in transforming digital operations with AI and Low-Code/No-Code automation. As advocates for Free Software, we contribute through code and community initiatives. Learn more at https://www.zyxware.com 
+Our AI & Automation Services focuses on creating solutions incorporating AI and automation tools to improve your business operations. We provide free tools like this as well as offer custom solutions tailored to your business needs.
+
+[Reach out to us](https://www.zyxware.com/contact-us) to schedule a free discovery call.
 
 ## Contact
 https://www.zyxware.com/contact-us
